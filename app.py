@@ -142,6 +142,11 @@ CUSTOM_CSS = """
     }
     h1, h2, h3 { color: #00ffea !important; }
     hr { border-color: rgba(0, 255, 234, 0.25) !important; }
+    .center-caption {
+        text-align: center;
+        color: #8fd7e8;
+        margin: 0 0 0.5rem 0;
+    }
     @media (max-width: 768px) {
         .modebar { display: none !important; }
     }
@@ -477,7 +482,7 @@ if page == "Dashboard":
 
     # Main Progress Chart - Plotly with Futuristic Style
     st.subheader("📈 Monthly Progress – Live Trajectory")
-    st.caption(f"Monthly Progress to Target - {mkey}")
+    st.markdown(f"<div class='center-caption'>Monthly Progress to Target - {mkey}</div>", unsafe_allow_html=True)
     
     if len(trans_daily_pickups) > 0:
         daily_agg = trans_daily_pickups.groupby("pickup_date")["trucks_picked"].sum().reset_index()
@@ -553,6 +558,7 @@ if page == "Dashboard":
             margin=dict(l=30, r=20, b=100, t=40),
             height=440,
             hovermode='x unified',
+            dragmode=False,
             xaxis=dict(
                 showgrid=True,
                 gridcolor='rgba(255,255,255,0.08)',
@@ -568,7 +574,16 @@ if page == "Dashboard":
             legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.25, yanchor="top", font=dict(size=11))
         )
         
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
+        st.plotly_chart(
+            fig,
+            width="stretch",
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+                "scrollZoom": False,
+                "doubleClick": False,
+            },
+        )
     else:
         st.info("No pickup data logged yet. Start logging daily pickups to see the progress chart.")
 
