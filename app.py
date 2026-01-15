@@ -570,7 +570,8 @@ if page == "Dashboard":
                 gridcolor='rgba(255,255,255,0.08)',
                 automargin=True
             ),
-            title=None,
+            title_text="",
+            legend_title_text="",
             legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.25, yanchor="top", font=dict(size=11))
         )
         
