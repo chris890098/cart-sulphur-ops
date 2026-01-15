@@ -295,10 +295,40 @@ if page == "Dashboard":
     with cols[0]:
         st.metric("Target (MT)", f"{allocation_mt:,.0f}")
     with cols[1]:
-        delta_picked = total_mt_picked - (allocation_mt / finish_by_day * (today - date(today.year, today.month, 1)).days)
-        st.metric("Picked (MT)", f"{total_mt_picked:,.0f}", f"{delta_picked:+,.0f}")
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <p class="metric-title">Picked up</p>
+                <div class="metric-row">
+                    <span class="metric-label">MT</span>
+                    <span class="metric-value">{total_mt_picked:,.0f}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Trucks</span>
+                    <span class="metric-value">{total_trucks_picked:,}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     with cols[2]:
-        st.metric("Remaining (MT)", f"{remaining:,.0f}")
+        remaining_trucks = remaining / TRUCK_CAPACITY_MT
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <p class="metric-title">Remaining</p>
+                <div class="metric-row">
+                    <span class="metric-label">MT</span>
+                    <span class="metric-value">{remaining:,.0f}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Trucks</span>
+                    <span class="metric-value">{remaining_trucks:,.1f}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     with cols[3]:
         st.metric("Days Left", f"{days_left}")
 
@@ -327,7 +357,6 @@ if page == "Dashboard":
                 <div class="metric-card">
                     <p class="metric-title">Status</p>
                     <p class="status-value">{status_value}</p>
-                    <p class="status-delta">Variance: {variance:+,.0f} MT</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -486,8 +515,16 @@ if page == "Dashboard":
                 <span class="metric-value">{poly_mt:,.0f}</span>
             </div>
             <div class="metric-row">
+                <span class="metric-label">Completed (Trucks)</span>
+                <span class="metric-value">{poly_trucks:,}</span>
+            </div>
+            <div class="metric-row">
                 <span class="metric-label">Remaining (MT)</span>
                 <span class="metric-value">{poly_alloc - poly_mt:,.0f}</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Remaining (Trucks)</span>
+                <span class="metric-value">{(poly_alloc - poly_mt) / TRUCK_CAPACITY_MT:,.1f}</span>
             </div>
             <div class="metric-row">
                 <span class="metric-label">Trucks Needed to Target (/day)</span>
@@ -550,8 +587,16 @@ if page == "Dashboard":
                 <span class="metric-value">{tram_mt:,.0f}</span>
             </div>
             <div class="metric-row">
+                <span class="metric-label">Completed (Trucks)</span>
+                <span class="metric-value">{tram_trucks:,}</span>
+            </div>
+            <div class="metric-row">
                 <span class="metric-label">Remaining (MT)</span>
                 <span class="metric-value">{tram_alloc - tram_mt:,.0f}</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Remaining (Trucks)</span>
+                <span class="metric-value">{(tram_alloc - tram_mt) / TRUCK_CAPACITY_MT:,.1f}</span>
             </div>
             <div class="metric-row">
                 <span class="metric-label">Trucks Needed to Target (/day)</span>
