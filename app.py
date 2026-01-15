@@ -8,7 +8,11 @@ import numpy as np
 import os
 
 # ─── Theme & Layout ────────────────────────────────────────────────────────
-st.set_page_config(page_title="CART SULPHUR OPS • 2026", layout="wide")
+st.set_page_config(
+    page_title="CART SULPHUR OPS • 2026",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
 CUSTOM_CSS = """
 <style>
