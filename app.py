@@ -24,20 +24,32 @@ CUSTOM_CSS = """
         border-radius: 16px;
         padding: 1rem;
         min-height: 120px;
+        text-align: center;
     }
     .stMetric > div:first-child,
-    [data-testid="stMetric"] > div:first-child {
+    [data-testid="stMetric"] > div:first-child,
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetric"] [data-testid="stMetricLabel"],
+    .stMetric label {
         font-size: 12px !important;
+        text-align: center;
+        width: 100%;
+    }
+    [data-testid="stMetric"] > div {
+        align-items: center !important;
+        justify-content: center !important;
     }
     .stMetric [data-testid="stMetricValue"],
     [data-testid="stMetricValue"] {
         font-size: 26px;
         font-weight: 700;
+        text-align: center;
     }
     .stMetric [data-testid="stMetricDelta"],
     [data-testid="stMetricDelta"] {
         font-size: 13px;
         font-weight: 600;
+        text-align: center;
     }
     .metric-card {
         background: rgba(10, 25, 60, 0.45);
@@ -51,17 +63,51 @@ CUSTOM_CSS = """
         font-size: 12px;
         color: #e0f7ff;
         margin: 0;
+        text-align: center;
+        margin-bottom: 0.6rem;
     }
     .status-value {
         font-size: 18px;
         font-weight: 700;
-        margin: 0.35rem 0 0 0;
+        margin: 0.6rem 0 0 0;
+        text-align: center;
     }
     .status-delta {
         font-size: 12px;
         font-weight: 600;
         color: #bfe8f4;
         margin: 0.35rem 0 0 0;
+        text-align: center;
+    }
+    .metric-blocks {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.35rem 0.6rem;
+        margin-top: 0;
+        justify-items: center;
+    }
+    .metric-blocks.single {
+        grid-template-columns: 1fr;
+        place-items: center;
+    }
+    .metric-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.1rem;
+        text-align: center;
+    }
+    .metric-block-label {
+        font-size: 12px;
+        color: #bfe8f4;
+    }
+    .metric-block-value {
+        font-size: 20px;
+        font-weight: 700;
+        color: #e0f7ff;
+        line-height: 1.1;
+        text-align: center;
+        width: 100%;
     }
     .metric-stack {
         background: rgba(10, 25, 60, 0.45);
@@ -245,8 +291,10 @@ st.sidebar.title("🚀 CART OPS")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 is_admin = False
 if ADMIN_TOKEN:
-    admin_input = st.sidebar.text_input("Admin access", type="password")
-    if admin_input and admin_input == ADMIN_TOKEN:
+    admin_param = st.query_params.get("admin", "")
+    if isinstance(admin_param, list):
+        admin_param = admin_param[0] if admin_param else ""
+    if admin_param and admin_param == ADMIN_TOKEN:
         is_admin = True
 else:
     is_admin = True
@@ -256,7 +304,7 @@ if is_admin:
 else:
     page = "Dashboard"
     st.sidebar.markdown("🔒 Admin pages hidden")
-    st.sidebar.caption("Set ADMIN_TOKEN to unlock")
+    st.sidebar.caption("Admin access via URL only")
 
 plan_df = read_df("SELECT allocation_mt, finish_by_day FROM monthly_plan WHERE month_key=?", (mkey,))
 allocation_mt = float(plan_df.iloc[0]["allocation_mt"]) if len(plan_df) else DEFAULT_MONTHLY_ALLOCATION_MT
@@ -293,19 +341,33 @@ if page == "Dashboard":
     # KPI Metrics
     cols = st.columns(4)
     with cols[0]:
-        st.metric("Target (MT)", f"{allocation_mt:,.0f}")
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <p class="metric-title">Target (MT)</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{allocation_mt:,.0f}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     with cols[1]:
         st.markdown(
             f"""
             <div class="metric-card">
                 <p class="metric-title">Picked up</p>
-                <div class="metric-row">
-                    <span class="metric-label">MT</span>
-                    <span class="metric-value">{total_mt_picked:,.0f}</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">Trucks</span>
-                    <span class="metric-value">{total_trucks_picked:,}</span>
+                <div class="metric-blocks">
+                    <div class="metric-block">
+                        <span class="metric-block-label">MT</span>
+                        <span class="metric-block-value">{total_mt_picked:,.0f}</span>
+                    </div>
+                    <div class="metric-block">
+                        <span class="metric-block-label">Trucks</span>
+                        <span class="metric-block-value">{total_trucks_picked:,}</span>
+                    </div>
                 </div>
             </div>
             """,
@@ -317,20 +379,34 @@ if page == "Dashboard":
             f"""
             <div class="metric-card">
                 <p class="metric-title">Remaining</p>
-                <div class="metric-row">
-                    <span class="metric-label">MT</span>
-                    <span class="metric-value">{remaining:,.0f}</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">Trucks</span>
-                    <span class="metric-value">{remaining_trucks:,.1f}</span>
+                <div class="metric-blocks">
+                    <div class="metric-block">
+                        <span class="metric-block-label">MT</span>
+                        <span class="metric-block-value">{remaining:,.0f}</span>
+                    </div>
+                    <div class="metric-block">
+                        <span class="metric-block-label">Trucks</span>
+                        <span class="metric-block-value">{remaining_trucks:,.1f}</span>
+                    </div>
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
     with cols[3]:
-        st.metric("Days Left", f"{days_left}")
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <p class="metric-title">Days Left</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{days_left}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.divider()
 
@@ -362,9 +438,33 @@ if page == "Dashboard":
                 unsafe_allow_html=True,
             )
         with col2:
-            st.metric("Needed/Day (MT)", f"{needed_per_day:.1f}")
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                    <p class="metric-title">Needed/Day (MT)</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-value">{needed_per_day:.1f}</span>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
         with col3:
-            st.metric("Needed/Day (Trucks)", f"{trucks_needed:.1f}")
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                    <p class="metric-title">Needed/Day (Trucks)</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-value">{trucks_needed:.1f}</span>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.divider()
 
@@ -473,7 +573,7 @@ if page == "Dashboard":
         fig_poly = go.Figure(go.Indicator(
             mode="gauge+number+delta",
             value=poly_pct,
-            title=dict(text="Polytra", font=dict(size=16, color='#00ffea')),
+            title=dict(text="Polytra", font=dict(size=20, color='#ffffff')),
             delta=dict(reference=100, suffix="% to target"),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#2f80ff'),
@@ -545,7 +645,7 @@ if page == "Dashboard":
         fig_tram = go.Figure(go.Indicator(
             mode="gauge+number+delta",
             value=tram_pct,
-            title=dict(text="Reload (Trammo)", font=dict(size=16, color='#00ffea')),
+            title=dict(text="Reload (Trammo)", font=dict(size=20, color='#ffffff')),
             delta=dict(reference=100, suffix="% to target"),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#ff9f1a'),
