@@ -76,7 +76,7 @@ CUSTOM_CSS = """
     .status-value {
         font-size: 18px;
         font-weight: 700;
-        margin: 0.6rem 0 0 0;
+        margin: 0;
         text-align: center;
     }
     .status-delta {
@@ -451,7 +451,11 @@ if page == "Dashboard":
                 f"""
                 <div class="metric-card compact">
                     <p class="metric-title">Status</p>
-                    <p class="status-value">{status_value}</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="status-value">{status_value}</span>
+                        </div>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
