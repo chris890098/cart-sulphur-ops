@@ -62,6 +62,9 @@ CUSTOM_CSS = """
         border-radius: 16px;
         padding: 1rem;
         min-height: 120px;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
     }
     .metric-title {
         font-size: 12px;
@@ -93,6 +96,10 @@ CUSTOM_CSS = """
     .metric-blocks.single {
         grid-template-columns: 1fr;
         place-items: center;
+    }
+    .metric-card.compact {
+        min-height: 100px;
+        padding-bottom: 0.7rem;
     }
     .metric-block {
         display: flex;
@@ -442,7 +449,7 @@ if page == "Dashboard":
             status_value = f"✅ Ahead by {variance:,.0f} MT" if variance >= 0 else f"⚠️ Behind by {abs(variance):,.0f} MT"
             st.markdown(
                 f"""
-                <div class="metric-card">
+                <div class="metric-card compact">
                     <p class="metric-title">Status</p>
                     <p class="status-value">{status_value}</p>
                 </div>
@@ -452,7 +459,7 @@ if page == "Dashboard":
         with col2:
             st.markdown(
                 f"""
-                <div class="metric-card">
+                <div class="metric-card compact">
                     <p class="metric-title">Needed/Day (MT)</p>
                     <div class="metric-blocks single">
                         <div class="metric-block">
@@ -466,7 +473,7 @@ if page == "Dashboard":
         with col3:
             st.markdown(
                 f"""
-                <div class="metric-card">
+                <div class="metric-card compact">
                     <p class="metric-title">Needed/Day (Trucks)</p>
                     <div class="metric-blocks single">
                         <div class="metric-block">
