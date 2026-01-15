@@ -608,3 +608,4 @@ elif page == "Settings":
         if os.path.exists(DB_PATH):
             os.remove(DB_PATH)
             st.success("✅ Database cleared! Refresh the page to start fresh.")
+
