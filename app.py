@@ -142,6 +142,9 @@ CUSTOM_CSS = """
     }
     h1, h2, h3 { color: #00ffea !important; }
     hr { border-color: rgba(0, 255, 234, 0.25) !important; }
+    @media (max-width: 768px) {
+        .modebar { display: none !important; }
+    }
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -546,15 +549,16 @@ if page == "Dashboard":
             template='plotly_dark',
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0.1)',
-            margin=dict(l=40, r=40, b=60, t=80),
-            height=500,
+            margin=dict(l=30, r=20, b=90, t=70),
+            height=450,
             hovermode='x unified',
             xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.08)', title='Date'),
             yaxis=dict(title=dict(text='Cumulative MT', font=dict(size=13)), gridcolor='rgba(255,255,255,0.08)'),
-            title=dict(text=f'Monthly Progress to Target - {mkey}', font=dict(size=18, color='#00ffea'))
+            title=dict(text=f'Monthly Progress to Target - {mkey}', font=dict(size=18, color='#00ffea'), x=0.5),
+            legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.2, yanchor="top", font=dict(size=11))
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
     else:
         st.info("No pickup data logged yet. Start logging daily pickups to see the progress chart.")
 
