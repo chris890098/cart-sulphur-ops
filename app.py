@@ -16,7 +16,8 @@ CUSTOM_CSS = """
         background: linear-gradient(135deg, #0f0f2d 0%, #000814 100%);
         color: #e0f7ff;
     }
-    .stMetric {
+    .stMetric,
+    [data-testid="stMetric"] {
         background: rgba(10, 25, 60, 0.45);
         backdrop-filter: blur(10px);
         border: 1px solid rgba(0, 255, 200, 0.18);
@@ -24,16 +25,43 @@ CUSTOM_CSS = """
         padding: 1rem;
         min-height: 120px;
     }
-    .stMetric > div:first-child {
+    .stMetric > div:first-child,
+    [data-testid="stMetric"] > div:first-child {
         font-size: 12px !important;
     }
-    .stMetric [data-testid="stMetricValue"] {
+    .stMetric [data-testid="stMetricValue"],
+    [data-testid="stMetricValue"] {
         font-size: 26px;
         font-weight: 700;
     }
-    .stMetric [data-testid="stMetricDelta"] {
+    .stMetric [data-testid="stMetricDelta"],
+    [data-testid="stMetricDelta"] {
         font-size: 13px;
         font-weight: 600;
+    }
+    .metric-card {
+        background: rgba(10, 25, 60, 0.45);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 255, 200, 0.18);
+        border-radius: 16px;
+        padding: 1rem;
+        min-height: 120px;
+    }
+    .metric-title {
+        font-size: 12px;
+        color: #e0f7ff;
+        margin: 0;
+    }
+    .status-value {
+        font-size: 18px;
+        font-weight: 700;
+        margin: 0.35rem 0 0 0;
+    }
+    .status-delta {
+        font-size: 12px;
+        font-weight: 600;
+        color: #bfe8f4;
+        margin: 0.35rem 0 0 0;
     }
     .metric-stack {
         background: rgba(10, 25, 60, 0.45);
@@ -294,7 +322,16 @@ if page == "Dashboard":
         col1, col2, col3 = st.columns(3)
         with col1:
             status_value = f"✅ Ahead by {variance:,.0f} MT" if variance >= 0 else f"⚠️ Behind by {abs(variance):,.0f} MT"
-            st.metric("Status", status_value, f"{variance:+,.0f} MT")
+            st.markdown(
+                f"""
+                <div class="metric-card">
+                    <p class="metric-title">Status</p>
+                    <p class="status-value">{status_value}</p>
+                    <p class="status-delta">Variance: {variance:+,.0f} MT</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
         with col2:
             st.metric("Needed/Day (MT)", f"{needed_per_day:.1f}")
         with col3:
@@ -608,4 +645,3 @@ elif page == "Settings":
         if os.path.exists(DB_PATH):
             os.remove(DB_PATH)
             st.success("✅ Database cleared! Refresh the page to start fresh.")
-
