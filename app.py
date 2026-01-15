@@ -477,6 +477,7 @@ if page == "Dashboard":
 
     # Main Progress Chart - Plotly with Futuristic Style
     st.subheader("📈 Monthly Progress – Live Trajectory")
+    st.caption(f"Monthly Progress to Target - {mkey}")
     
     if len(trans_daily_pickups) > 0:
         daily_agg = trans_daily_pickups.groupby("pickup_date")["trucks_picked"].sum().reset_index()
@@ -549,13 +550,22 @@ if page == "Dashboard":
             template='plotly_dark',
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0.1)',
-            margin=dict(l=30, r=20, b=90, t=70),
-            height=450,
+            margin=dict(l=30, r=20, b=100, t=40),
+            height=440,
             hovermode='x unified',
-            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.08)', title='Date'),
-            yaxis=dict(title=dict(text='Cumulative MT', font=dict(size=13)), gridcolor='rgba(255,255,255,0.08)'),
-            title=dict(text=f'Monthly Progress to Target - {mkey}', font=dict(size=18, color='#00ffea'), x=0.5),
-            legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.2, yanchor="top", font=dict(size=11))
+            xaxis=dict(
+                showgrid=True,
+                gridcolor='rgba(255,255,255,0.08)',
+                title='Date',
+                automargin=True
+            ),
+            yaxis=dict(
+                title=dict(text='Cumulative MT', font=dict(size=13)),
+                gridcolor='rgba(255,255,255,0.08)',
+                automargin=True
+            ),
+            title=None,
+            legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.25, yanchor="top", font=dict(size=11))
         )
         
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
