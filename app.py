@@ -301,8 +301,18 @@ init_db()
 migrate_db()
 
 today = date.today()
-mkey = month_key_for(today)
-ensure_month_plan(mkey)
+current_mkey = month_key_for(today)
+
+def list_month_keys():
+    months = set()
+    plan_months = read_df("SELECT month_key FROM monthly_plan")
+    if len(plan_months):
+        months.update(plan_months["month_key"].tolist())
+    pickup_months = read_df("SELECT DISTINCT substr(pickup_date, 1, 7) AS month_key FROM transporter_daily_pickups")
+    if len(pickup_months):
+        months.update(pickup_months["month_key"].tolist())
+    months.add(current_mkey)
+    return sorted(months, reverse=True)
 
 # ─── Load Data ─────────────────────────────────────────────────────────────
 st.sidebar.title("🚀 CART OPS")
@@ -319,15 +329,27 @@ else:
     is_admin = True
 
 if is_admin:
-    page = st.sidebar.radio("Navigate", ["Dashboard", "Daily Planner", "Settings"])
+    page = st.sidebar.radio("Navigate", ["Dashboard", "Daily Planner", "Settings", "Monthly Data"])
 else:
     page = "Dashboard"
     st.sidebar.markdown("🔒 Admin pages hidden")
     st.sidebar.caption("Admin access via URL only")
 
+available_months = list_month_keys()
+default_index = available_months.index(current_mkey) if current_mkey in available_months else 0
+mkey = current_mkey
+if page == "Monthly Data":
+    mkey = st.selectbox("Month", available_months, index=default_index)
+ensure_month_plan(mkey)
+
 plan_df = read_df("SELECT allocation_mt, finish_by_day FROM monthly_plan WHERE month_key=?", (mkey,))
 allocation_mt = float(plan_df.iloc[0]["allocation_mt"]) if len(plan_df) else DEFAULT_MONTHLY_ALLOCATION_MT
 finish_by_day = int(plan_df.iloc[0]["finish_by_day"]) if len(plan_df) else DEFAULT_FINISH_BY_DAY
+
+selected_year, selected_month = [int(part) for part in mkey.split("-")]
+month_start = date(selected_year, selected_month, 1)
+finish_by_date = date(selected_year, selected_month, min(finish_by_day, 28))
+as_of_date = today if mkey == current_mkey else finish_by_date
 
 trans_alloc_df = read_df("SELECT transporter_name, allocation_mt FROM transporter_allocation WHERE month_key=?", (mkey,))
 trans_alloc = {row["transporter_name"]: float(row["allocation_mt"]) for _, row in trans_alloc_df.iterrows()}
@@ -347,15 +369,14 @@ tram_trucks = int(trans_daily_pickups[trans_daily_pickups["transporter_name"] ==
 tram_mt = float(tram_trucks * TRUCK_CAPACITY_MT)
 
 remaining = allocation_mt - total_mt_picked
-finish_by_date = date(today.year, today.month, min(finish_by_day, 28))
-days_left = max(0, (finish_by_date - today).days)
+days_left = max(0, (finish_by_date - as_of_date).days)
 
 # Calculate days until 24th for transporter performance
-days_until_24 = max(1, (date(today.year, today.month, 24) - today).days)
+days_until_24 = max(1, (date(selected_year, selected_month, 24) - as_of_date).days)
 
 if page == "Dashboard":
     st.title("🌀 CART SULPHUR OPS • CONTROL CENTER")
-    st.caption(f"Month: {today.strftime('%Y-%m')} • Supplier: Sasol • Target: {allocation_mt:,.0f} MT")
+    st.caption(f"Month: {mkey} • Supplier: Sasol • Target: {allocation_mt:,.0f} MT")
 
     # KPI Metrics
     cols = st.columns(4)
@@ -427,6 +448,11 @@ if page == "Dashboard":
             unsafe_allow_html=True,
         )
 
+    over_target_mt = max(0, total_mt_picked - allocation_mt)
+    if over_target_mt > 0:
+        over_target_trucks = over_target_mt / TRUCK_CAPACITY_MT
+        st.success(f"Over target by {over_target_mt:,.0f} MT ({over_target_trucks:.1f} trucks)")
+
     st.divider()
 
     # Progress Analysis
@@ -436,10 +462,9 @@ if page == "Dashboard":
         daily_agg["daily_mt"] = daily_agg["trucks_picked"] * TRUCK_CAPACITY_MT
         daily_agg["cumulative_mt"] = daily_agg["daily_mt"].cumsum()
         
-        month_start = date(today.year, today.month, 1)
         latest_cumulative = daily_agg['cumulative_mt'].iloc[-1]
-        target_by_today = (allocation_mt / finish_by_day) * (today - month_start).days
-        variance = latest_cumulative - target_by_today
+        target_by_asof = (allocation_mt / finish_by_day) * (as_of_date - month_start).days
+        variance = latest_cumulative - target_by_asof
         
         needed_per_day = remaining / max(days_left, 1)
         trucks_needed = needed_per_day / TRUCK_CAPACITY_MT
@@ -489,8 +514,6 @@ if page == "Dashboard":
                 unsafe_allow_html=True,
             )
 
-    st.divider()
-
     # Main Progress Chart - Plotly with Futuristic Style
     st.subheader("📈 Monthly Progress – Live Trajectory")
     st.markdown(f"<div class='center-caption'>Monthly Progress to Target - {mkey}</div>", unsafe_allow_html=True)
@@ -501,8 +524,7 @@ if page == "Dashboard":
         daily_agg["cumulative_mt"] = daily_agg["daily_mt"].cumsum()
         daily_agg["pickup_date"] = pd.to_datetime(daily_agg["pickup_date"])
         
-        month_start = date(today.year, today.month, 1)
-        month_end = date(today.year, today.month, min(finish_by_day, 28))
+        month_end = date(selected_year, selected_month, min(finish_by_day, 28))
         
         # Create target trajectory
         target_dates = pd.date_range(month_start, month_end)
@@ -511,7 +533,7 @@ if page == "Dashboard":
         fig = go.Figure()
         
         # Split actual progress into completed and projected
-        completed_data = daily_agg[daily_agg['pickup_date'] <= pd.to_datetime(today)]
+        completed_data = daily_agg[daily_agg['pickup_date'] <= pd.to_datetime(as_of_date)]
         if len(completed_data) > 0:
             # Completed portion - bright cyan
             fig.add_trace(go.Scatter(
@@ -524,7 +546,7 @@ if page == "Dashboard":
             ))
         
         # Projected portion - dimmer cyan
-        projected_data = daily_agg[daily_agg['pickup_date'] > pd.to_datetime(today)]
+        projected_data = daily_agg[daily_agg['pickup_date'] > pd.to_datetime(as_of_date)]
         if len(projected_data) > 0 and len(completed_data) > 0:
             fig.add_trace(go.Scatter(
                 x=projected_data['pickup_date'], y=projected_data['cumulative_mt'],
@@ -545,18 +567,19 @@ if page == "Dashboard":
         ))
         
         # Today marker - red dashed
+        marker_label = "TODAY" if mkey == current_mkey else "AS OF"
         fig.add_shape(
             type="line",
-            x0=pd.to_datetime(today), x1=pd.to_datetime(today),
+            x0=pd.to_datetime(as_of_date), x1=pd.to_datetime(as_of_date),
             y0=0, y1=1,
             yref="paper",
             line=dict(color='#ff2e63', width=4, dash='dash'),
         )
         fig.add_annotation(
-            x=pd.to_datetime(today),
+            x=pd.to_datetime(as_of_date),
             y=1,
             yref="paper",
-            text="TODAY",
+            text=marker_label,
             showarrow=False,
             font=dict(size=14, color='#ff2e63'),
             yshift=10
@@ -750,6 +773,68 @@ if page == "Dashboard":
         </div>
         """, unsafe_allow_html=True)
 
+    st.divider()
+
+    # Real-time Simulation
+    st.subheader("🧮 Real-time Simulator")
+    with st.expander("Run simulation", expanded=False):
+        sim_days = st.number_input("Days", min_value=1, step=1, value=5)
+        sim_trucks_per_day = st.number_input("Trucks per day", min_value=0.0, step=0.5, value=1.0)
+        sim_mt = sim_days * sim_trucks_per_day * TRUCK_CAPACITY_MT
+        projected_total = total_mt_picked + sim_mt
+        extra_mt = max(0, projected_total - allocation_mt)
+        extra_trucks = extra_mt / TRUCK_CAPACITY_MT if extra_mt > 0 else 0
+
+        sim_cols = st.columns(3)
+        with sim_cols[0]:
+            st.markdown(
+                f"""
+                <div class="metric-card compact">
+                    <p class="metric-title">Simulated MT</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-value">{sim_mt:,.0f}</span>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with sim_cols[1]:
+            st.markdown(
+                f"""
+                <div class="metric-card compact">
+                    <p class="metric-title">Projected Total MT</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-value">{projected_total:,.0f}</span>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with sim_cols[2]:
+            st.markdown(
+                f"""
+                <div class="metric-card compact">
+                    <p class="metric-title">Extra Over Target</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-value">{extra_mt:,.0f}</span>
+                        </div>
+                    </div>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-label">Trucks</span>
+                            <span class="metric-block-value">{extra_trucks:.1f}</span>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
 elif page == "Daily Planner":
     st.title("Daily Truck Pickups")
     st.caption("Track daily truck pickups per transporter from Sasol")
@@ -795,6 +880,64 @@ elif page == "Daily Planner":
         if len(tram_pickups):
             st.metric("Trucks (7 days)", f"{int(tram_pickups['trucks_picked'].sum())}")
             st.dataframe(tram_pickups, use_container_width=True, hide_index=True)
+
+elif page == "Monthly Data":
+    st.title("Monthly Data")
+    st.caption(f"Month: {mkey} • Supplier: Sasol • Target: {allocation_mt:,.0f} MT")
+
+    summary_cols = st.columns(3)
+    with summary_cols[0]:
+        st.markdown(
+            f"""
+            <div class="metric-card compact">
+                <p class="metric-title">Total Picked (MT)</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{total_mt_picked:,.0f}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with summary_cols[1]:
+        st.markdown(
+            f"""
+            <div class="metric-card compact">
+                <p class="metric-title">Total Trucks</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{total_trucks_picked:,}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with summary_cols[2]:
+        over_target_mt = max(0, total_mt_picked - allocation_mt)
+        st.markdown(
+            f"""
+            <div class="metric-card compact">
+                <p class="metric-title">Over Target (MT)</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{over_target_mt:,.0f}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+    st.subheader("Daily Pickups")
+    if len(trans_daily_pickups):
+        daily_view = trans_daily_pickups.copy()
+        daily_view["mt"] = daily_view["trucks_picked"] * TRUCK_CAPACITY_MT
+        st.dataframe(daily_view, width="stretch", hide_index=True)
+    else:
+        st.info("No pickup data logged for this month.")
 
 elif page == "Settings":
     st.title("Settings")
