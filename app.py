@@ -859,7 +859,7 @@ elif page == "Daily Planner":
         poly_pickups = read_df("SELECT id, pickup_date, trucks_picked, notes FROM transporter_daily_pickups WHERE transporter_name='Polytra' ORDER BY pickup_date DESC LIMIT 7")
         if len(poly_pickups):
             st.metric("Trucks (7 days)", f"{int(poly_pickups['trucks_picked'].sum())}")
-            st.dataframe(poly_pickups.drop(columns=["id"]), width="stretch", hide_index=True)
+            st.dataframe(poly_pickups.drop(columns=["id"]), use_container_width=True, hide_index=True)
 
             with st.expander("Edit/Delete Polytra Entry", expanded=False):
                 poly_options = {
@@ -928,7 +928,7 @@ elif page == "Daily Planner":
         tram_pickups = read_df("SELECT id, pickup_date, trucks_picked, notes FROM transporter_daily_pickups WHERE transporter_name='Reload (Trammo)' ORDER BY pickup_date DESC LIMIT 7")
         if len(tram_pickups):
             st.metric("Trucks (7 days)", f"{int(tram_pickups['trucks_picked'].sum())}")
-            st.dataframe(tram_pickups.drop(columns=["id"]), width="stretch", hide_index=True)
+            st.dataframe(tram_pickups.drop(columns=["id"]), use_container_width=True, hide_index=True)
 
             with st.expander("Edit/Delete Trammo Entry", expanded=False):
                 tram_options = {
@@ -1033,7 +1033,7 @@ elif page == "Monthly Data":
     if len(trans_daily_pickups):
         daily_view = trans_daily_pickups.copy()
         daily_view["mt"] = daily_view["trucks_picked"] * TRUCK_CAPACITY_MT
-        st.dataframe(daily_view, width="stretch", hide_index=True)
+        st.dataframe(daily_view, use_container_width=True, hide_index=True)
     else:
         st.info("No pickup data logged for this month.")
 
