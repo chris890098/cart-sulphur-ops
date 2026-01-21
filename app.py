@@ -325,8 +325,6 @@ if ADMIN_TOKEN:
         admin_param = admin_param[0] if admin_param else ""
     if admin_param and admin_param == ADMIN_TOKEN:
         is_admin = True
-else:
-    is_admin = True
 
 if is_admin:
     page = st.sidebar.radio("Navigate", ["Dashboard", "Monthly Data", "Daily Planner", "Settings"])
