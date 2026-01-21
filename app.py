@@ -329,9 +329,9 @@ else:
     is_admin = True
 
 if is_admin:
-    page = st.sidebar.radio("Navigate", ["Dashboard", "Daily Planner", "Settings", "Monthly Data"])
+    page = st.sidebar.radio("Navigate", ["Dashboard", "Monthly Data", "Daily Planner", "Settings"])
 else:
-    page = "Dashboard"
+    page = st.sidebar.radio("Navigate", ["Dashboard", "Monthly Data"])
     st.sidebar.markdown("🔒 Admin pages hidden")
     st.sidebar.caption("Admin access via URL only")
 
