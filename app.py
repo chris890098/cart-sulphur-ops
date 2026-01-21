@@ -162,7 +162,7 @@ CUSTOM_CSS = """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ─── Database Setup ────────────────────────────────────────────────────────
-DB_PATH = "cart_sulphur_ops.db"
+DB_PATH = os.getenv("DB_PATH", "cart_sulphur_ops.db")
 DEFAULT_MONTHLY_ALLOCATION_MT = 1250
 DEFAULT_FINISH_BY_DAY = 25
 TRUCK_CAPACITY_MT = 34
