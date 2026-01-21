@@ -856,10 +856,59 @@ elif page == "Daily Planner":
                 )
                 st.success("✅ Polytra pickups logged!")
         
-        poly_pickups = read_df("SELECT pickup_date, trucks_picked FROM transporter_daily_pickups WHERE transporter_name='Polytra' ORDER BY pickup_date DESC LIMIT 7")
+        poly_pickups = read_df("SELECT id, pickup_date, trucks_picked, notes FROM transporter_daily_pickups WHERE transporter_name='Polytra' ORDER BY pickup_date DESC LIMIT 7")
         if len(poly_pickups):
             st.metric("Trucks (7 days)", f"{int(poly_pickups['trucks_picked'].sum())}")
-            st.dataframe(poly_pickups, use_container_width=True, hide_index=True)
+            st.dataframe(poly_pickups.drop(columns=["id"]), width="stretch", hide_index=True)
+
+            with st.expander("Edit/Delete Polytra Entry", expanded=False):
+                poly_options = {
+                    f"{row['pickup_date']} • {int(row['trucks_picked'])} trucks": int(row["id"])
+                    for _, row in poly_pickups.iterrows()
+                }
+                selected_poly_label = st.selectbox(
+                    "Select entry",
+                    list(poly_options.keys()),
+                    key="poly_edit_select",
+                )
+                selected_poly_id = poly_options[selected_poly_label]
+                poly_row = poly_pickups[poly_pickups["id"] == selected_poly_id].iloc[0]
+
+                edit_poly_date = st.date_input(
+                    "Pickup date",
+                    value=date.fromisoformat(poly_row["pickup_date"]),
+                    key="poly_edit_date",
+                )
+                edit_poly_trucks = st.number_input(
+                    "Trucks picked",
+                    min_value=0,
+                    step=1,
+                    value=int(poly_row["trucks_picked"]),
+                    key="poly_edit_trucks",
+                )
+                edit_poly_notes = st.text_area(
+                    "Notes",
+                    value=poly_row["notes"] if poly_row["notes"] else "",
+                    key="poly_edit_notes",
+                )
+
+                col_update, col_delete = st.columns(2)
+                with col_update:
+                    if st.button("Update Entry", key="poly_update_btn"):
+                        try:
+                            exec_sql(
+                                "UPDATE transporter_daily_pickups SET pickup_date=?, trucks_picked=?, notes=? WHERE id=?",
+                                (edit_poly_date.isoformat(), edit_poly_trucks, edit_poly_notes, selected_poly_id),
+                            )
+                            st.success("✅ Polytra entry updated.")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("⚠️ Update failed. Duplicate pickup date for Polytra.")
+                with col_delete:
+                    if st.button("Delete Entry", key="poly_delete_btn"):
+                        exec_sql("DELETE FROM transporter_daily_pickups WHERE id=?", (selected_poly_id,))
+                        st.success("🗑️ Polytra entry deleted.")
+                        st.rerun()
     
     with col2:
         st.subheader("🚛 Trammo Daily Pickups")
@@ -876,10 +925,59 @@ elif page == "Daily Planner":
                 )
                 st.success("✅ Trammo pickups logged!")
         
-        tram_pickups = read_df("SELECT pickup_date, trucks_picked FROM transporter_daily_pickups WHERE transporter_name='Reload (Trammo)' ORDER BY pickup_date DESC LIMIT 7")
+        tram_pickups = read_df("SELECT id, pickup_date, trucks_picked, notes FROM transporter_daily_pickups WHERE transporter_name='Reload (Trammo)' ORDER BY pickup_date DESC LIMIT 7")
         if len(tram_pickups):
             st.metric("Trucks (7 days)", f"{int(tram_pickups['trucks_picked'].sum())}")
-            st.dataframe(tram_pickups, use_container_width=True, hide_index=True)
+            st.dataframe(tram_pickups.drop(columns=["id"]), width="stretch", hide_index=True)
+
+            with st.expander("Edit/Delete Trammo Entry", expanded=False):
+                tram_options = {
+                    f"{row['pickup_date']} • {int(row['trucks_picked'])} trucks": int(row["id"])
+                    for _, row in tram_pickups.iterrows()
+                }
+                selected_tram_label = st.selectbox(
+                    "Select entry",
+                    list(tram_options.keys()),
+                    key="tram_edit_select",
+                )
+                selected_tram_id = tram_options[selected_tram_label]
+                tram_row = tram_pickups[tram_pickups["id"] == selected_tram_id].iloc[0]
+
+                edit_tram_date = st.date_input(
+                    "Pickup date",
+                    value=date.fromisoformat(tram_row["pickup_date"]),
+                    key="tram_edit_date",
+                )
+                edit_tram_trucks = st.number_input(
+                    "Trucks picked",
+                    min_value=0,
+                    step=1,
+                    value=int(tram_row["trucks_picked"]),
+                    key="tram_edit_trucks",
+                )
+                edit_tram_notes = st.text_area(
+                    "Notes",
+                    value=tram_row["notes"] if tram_row["notes"] else "",
+                    key="tram_edit_notes",
+                )
+
+                col_update, col_delete = st.columns(2)
+                with col_update:
+                    if st.button("Update Entry", key="tram_update_btn"):
+                        try:
+                            exec_sql(
+                                "UPDATE transporter_daily_pickups SET pickup_date=?, trucks_picked=?, notes=? WHERE id=?",
+                                (edit_tram_date.isoformat(), edit_tram_trucks, edit_tram_notes, selected_tram_id),
+                            )
+                            st.success("✅ Trammo entry updated.")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("⚠️ Update failed. Duplicate pickup date for Trammo.")
+                with col_delete:
+                    if st.button("Delete Entry", key="tram_delete_btn"):
+                        exec_sql("DELETE FROM transporter_daily_pickups WHERE id=?", (selected_tram_id,))
+                        st.success("🗑️ Trammo entry deleted.")
+                        st.rerun()
 
 elif page == "Monthly Data":
     st.title("Monthly Data")
