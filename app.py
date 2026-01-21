@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import os
+from PIL import Image
 
 # ─── Theme & Layout ────────────────────────────────────────────────────────
 st.set_page_config(
@@ -19,6 +20,9 @@ CUSTOM_CSS = """
     [data-testid="stAppViewContainer"] {
         background: linear-gradient(135deg, #0f0f2d 0%, #000814 100%);
         color: #e0f7ff;
+    }
+    [data-testid="stAppViewContainer"] .block-container {
+        padding-top: 1.6rem;
     }
     .stMetric,
     [data-testid="stMetric"] {
@@ -154,6 +158,9 @@ CUSTOM_CSS = """
         color: #8fd7e8;
         margin: 0 0 0.5rem 0;
     }
+    .section-gap {
+        height: 0.8rem;
+    }
     @media (max-width: 768px) {
         .modebar { display: none !important; }
     }
@@ -195,6 +202,17 @@ def migrate_db():
             notes TEXT,
             created_at TEXT NOT NULL,
             UNIQUE(pickup_date, transporter_name)
+        )
+        """)
+        conn.commit()
+
+    if not table_exists("loading_orders"):
+        cur.execute("""
+        CREATE TABLE loading_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_key TEXT UNIQUE NOT NULL,
+            orders_paid INTEGER NOT NULL,
+            orders_open INTEGER NOT NULL
         )
         """)
         conn.commit()
@@ -284,6 +302,18 @@ def ensure_month_plan(mkey: str):
         conn.commit()
     conn.close()
 
+def ensure_loading_orders(mkey: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM loading_orders WHERE month_key=?", (mkey,))
+    if not cur.fetchone():
+        cur.execute(
+            "INSERT INTO loading_orders(month_key, orders_paid, orders_open) VALUES(?,?,?)",
+            (mkey, 0, 0),
+        )
+        conn.commit()
+    conn.close()
+
 def read_df(query, params=()):
     conn = get_conn()
     df = pd.read_sql_query(query, conn, params=params)
@@ -302,6 +332,18 @@ migrate_db()
 
 today = date.today()
 current_mkey = month_key_for(today)
+LOGO_PATH = "assets/cart-logo.png"
+
+def load_logo_icon(path: str):
+    try:
+        img = Image.open(path).convert("RGBA")
+    except (OSError, FileNotFoundError):
+        return None
+    w, h = img.size
+    size = int(h * 0.7)
+    y0 = max(0, (h - size) // 2)
+    x0 = 0
+    return img.crop((x0, y0, min(w, x0 + size), min(h, y0 + size)))
 
 def list_month_keys():
     months = set()
@@ -315,7 +357,11 @@ def list_month_keys():
     return sorted(months, reverse=True)
 
 # ─── Load Data ─────────────────────────────────────────────────────────────
-st.sidebar.title("🚀 CART OPS")
+logo_icon = load_logo_icon(LOGO_PATH)
+if logo_icon:
+    st.sidebar.image(logo_icon, width=72)
+    st.markdown("<div style='margin-top:0.4rem;'></div>", unsafe_allow_html=True)
+st.sidebar.title("CART OPS")
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 is_admin = False
@@ -339,6 +385,7 @@ mkey = current_mkey
 if page == "Monthly Data":
     mkey = st.selectbox("Month", available_months, index=default_index)
 ensure_month_plan(mkey)
+ensure_loading_orders(mkey)
 
 plan_df = read_df("SELECT allocation_mt, finish_by_day FROM monthly_plan WHERE month_key=?", (mkey,))
 allocation_mt = float(plan_df.iloc[0]["allocation_mt"]) if len(plan_df) else DEFAULT_MONTHLY_ALLOCATION_MT
@@ -351,6 +398,9 @@ as_of_date = today if mkey == current_mkey else finish_by_date
 
 trans_alloc_df = read_df("SELECT transporter_name, allocation_mt FROM transporter_allocation WHERE month_key=?", (mkey,))
 trans_alloc = {row["transporter_name"]: float(row["allocation_mt"]) for _, row in trans_alloc_df.iterrows()}
+
+loading_orders_df = read_df("SELECT orders_paid, orders_open FROM loading_orders WHERE month_key=?", (mkey,))
+orders_paid = int(loading_orders_df.iloc[0]["orders_paid"]) if len(loading_orders_df) else 0
 
 trans_daily_pickups = read_df(
     "SELECT pickup_date, transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
@@ -373,8 +423,14 @@ days_left = max(0, (finish_by_date - as_of_date).days)
 days_until_24 = max(1, (date(selected_year, selected_month, 24) - as_of_date).days)
 
 if page == "Dashboard":
-    st.title("🌀 CART SULPHUR OPS • CONTROL CENTER")
-    st.caption(f"Month: {mkey} • Supplier: Sasol • Target: {allocation_mt:,.0f} MT")
+    title_cols = st.columns([2, 11])
+    with title_cols[0]:
+        if logo_icon:
+            st.markdown("<div style='margin-top:0.4rem;'></div>", unsafe_allow_html=True)
+            st.image(logo_icon, width=84)
+    with title_cols[1]:
+        st.title("CART SULPHUR OPS • CONTROL CENTER")
+    st.subheader(f"Summary — {month_start.strftime('%B %Y')}")
 
     # KPI Metrics
     cols = st.columns(4)
@@ -452,6 +508,63 @@ if page == "Dashboard":
         st.success(f"Over target by {over_target_mt:,.0f} MT ({over_target_trucks:.1f} trucks)")
 
     st.divider()
+    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
+
+    # Loading Orders Tracker
+    st.subheader("📦 Loading Orders")
+    total_trucks_needed = allocation_mt / TRUCK_CAPACITY_MT
+    planned_orders = int(np.ceil(total_trucks_needed))
+    paid_trucks_covered = orders_paid
+    paid_mt_covered = paid_trucks_covered * TRUCK_CAPACITY_MT
+    paid_remaining = max(0, orders_paid - total_trucks_picked)
+    remaining_orders = max(0, planned_orders - (paid_remaining + total_trucks_picked))
+
+    lo_cols = st.columns(3)
+    with lo_cols[0]:
+        st.markdown(
+            f"""
+            <div class="metric-card compact">
+                <p class="metric-title">Paid Orders Remaining</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{paid_remaining}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with lo_cols[1]:
+        st.markdown(
+            f"""
+            <div class="metric-card compact">
+                <p class="metric-title">Paid Coverage (MT)</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{paid_mt_covered:,.0f}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with lo_cols[2]:
+        st.markdown(
+            f"""
+            <div class="metric-card compact">
+                <p class="metric-title">Orders To Pay</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{remaining_orders}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
 
     # Progress Analysis
     st.subheader("📊 Progress Analysis")
@@ -511,6 +624,9 @@ if page == "Dashboard":
                 """,
                 unsafe_allow_html=True,
             )
+
+    st.divider()
+    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
 
     # Main Progress Chart - Plotly with Futuristic Style
     st.subheader("📈 Monthly Progress – Live Trajectory")
@@ -1066,7 +1182,18 @@ elif page == "Settings":
         exec_sql("UPDATE transporter_allocation SET allocation_mt=? WHERE month_key=? AND transporter_name=?", (new_poly, mkey, "Polytra"))
         exec_sql("UPDATE transporter_allocation SET allocation_mt=? WHERE month_key=? AND transporter_name=?", (new_tram, mkey, "Reload (Trammo)"))
         st.success("✅ Allocations saved!")
-    
+
+    st.divider()
+    st.subheader("Loading Orders")
+    new_orders_paid = st.number_input("Orders paid", min_value=0, step=1, value=int(orders_paid))
+
+    if st.button("Save Loading Orders"):
+        exec_sql(
+            "UPDATE loading_orders SET orders_paid=?, orders_open=? WHERE month_key=?",
+            (new_orders_paid, 0, mkey),
+        )
+        st.success("✅ Loading orders saved!")
+
     st.divider()
     st.subheader("⚠️ Danger Zone")
     
