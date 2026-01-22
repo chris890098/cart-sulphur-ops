@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import os
+import math
 import calendar
 from PIL import Image
 
@@ -164,6 +165,12 @@ CUSTOM_CSS = """
     }
     .card-row-gap {
         height: 0.35rem;
+    }
+    .sim-footer-card {
+        margin-bottom: 0.6rem;
+    }
+    [data-testid="stExpander"] .streamlit-expanderContent {
+        padding-bottom: 0.8rem;
     }
     @media (max-width: 768px) {
         .modebar { display: none !important; }
@@ -547,6 +554,7 @@ if page == "Dashboard":
                 <div class="metric-blocks single">
                     <div class="metric-block">
                         <span class="metric-block-value">{days_left}</span>
+                        <span class="metric-block-label">{finish_by_date.strftime('%b %d')}</span>
                     </div>
                 </div>
             </div>
@@ -980,10 +988,17 @@ if page == "Dashboard":
     with st.expander("Run simulation", expanded=False):
         sim_days = st.number_input("Days", min_value=1, step=1, value=5)
         sim_trucks_per_day = st.number_input("Trucks per day", min_value=0.0, step=0.5, value=1.0)
-        sim_mt = sim_days * sim_trucks_per_day * TRUCK_CAPACITY_MT
+        daily_mt = sim_trucks_per_day * TRUCK_CAPACITY_MT
+        sim_mt = sim_days * daily_mt
         projected_total = total_mt_picked + sim_mt
-        extra_mt = max(0, projected_total - allocation_mt)
-        extra_trucks = extra_mt / TRUCK_CAPACITY_MT if extra_mt > 0 else 0
+        projected_pct = (projected_total / allocation_mt * 100) if allocation_mt > 0 else 0
+
+        predicted_end_date = as_of_date + timedelta(days=int(sim_days))
+        days_to_target = None
+        if daily_mt > 0:
+            days_to_target = math.ceil(max(0, remaining) / daily_mt)
+        predicted_target_date = as_of_date + timedelta(days=days_to_target) if days_to_target else None
+        finish_delta_days = (predicted_end_date - finish_by_date).days
 
         sim_cols = st.columns(3)
         with sim_cols[0]:
@@ -1018,22 +1033,94 @@ if page == "Dashboard":
             st.markdown(
                 f"""
                 <div class="metric-card compact">
-                    <p class="metric-title">Extra Over Target</p>
+                    <p class="metric-title">Projected % of Target</p>
                     <div class="metric-blocks single">
                         <div class="metric-block">
-                            <span class="metric-block-value">{extra_mt:,.0f}</span>
-                        </div>
-                    </div>
-                    <div class="metric-blocks single">
-                        <div class="metric-block">
-                            <span class="metric-block-label">Trucks</span>
-                            <span class="metric-block-value">{extra_trucks:.1f}</span>
+                            <span class="metric-block-value">{projected_pct:.1f}%</span>
                         </div>
                     </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+
+        st.markdown("<div class='card-row-gap'></div>", unsafe_allow_html=True)
+        sim_cols_2 = st.columns(3)
+        with sim_cols_2[0]:
+            st.markdown(
+                f"""
+                <div class="metric-card compact">
+                    <p class="metric-title">Projected End Date</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-value">{predicted_end_date.strftime('%b %d, %Y')}</span>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with sim_cols_2[1]:
+            target_date_text = predicted_target_date.strftime('%b %d, %Y') if predicted_target_date else "N/A"
+            st.markdown(
+                f"""
+                <div class="metric-card compact">
+                    <p class="metric-title">Target Hit Date</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-value">{target_date_text}</span>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with sim_cols_2[2]:
+            finish_status = "On time"
+            if finish_delta_days < 0:
+                finish_status = f"Ahead by {abs(finish_delta_days)}d"
+            elif finish_delta_days > 0:
+                finish_status = f"Behind by {finish_delta_days}d"
+            st.markdown(
+                f"""
+                <div class="metric-card compact">
+                    <p class="metric-title">Finish-by Delta</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-value">{finish_status}</span>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<div class='card-row-gap'></div>", unsafe_allow_html=True)
+        extra_mt = max(0, projected_total - allocation_mt)
+        short_mt = max(0, allocation_mt - projected_total)
+        variance_label = "Extra Over Target" if extra_mt > 0 else "Short to Target"
+        variance_mt = extra_mt if extra_mt > 0 else short_mt
+        variance_trucks = variance_mt / TRUCK_CAPACITY_MT if variance_mt > 0 else 0
+        st.markdown(
+            f"""
+            <div class="sim-footer-card">
+                <div class="metric-card compact">
+                    <p class="metric-title">{variance_label}</p>
+                    <div class="metric-blocks">
+                        <div class="metric-block">
+                            <span class="metric-block-label">MT</span>
+                            <span class="metric-block-value">{variance_mt:,.0f}</span>
+                        </div>
+                        <div class="metric-block">
+                            <span class="metric-block-label">Trucks</span>
+                            <span class="metric-block-value">{variance_trucks:.1f}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 elif page == "Daily Planner":
     st.title("Daily Truck Pickups")
@@ -1181,7 +1268,41 @@ elif page == "Daily Planner":
 
 elif page == "Monthly Data":
     st.title("Monthly Data")
-    st.caption(f"Month: {mkey} • Supplier: Sasol • Target: {allocation_mt:,.0f} MT")
+    month_opts_df = read_df(
+        """
+        SELECT DISTINCT month_key FROM monthly_plan
+        UNION
+        SELECT DISTINCT substr(pickup_date, 1, 7) AS month_key
+        FROM transporter_daily_pickups
+        ORDER BY month_key DESC
+        """
+    )
+    month_options = month_opts_df["month_key"].tolist() if len(month_opts_df) else [mkey]
+    month_options = month_options or [mkey]
+
+    md_cols = st.columns(2)
+    with md_cols[0]:
+        md_mkey = st.selectbox("Month", month_options, index=0, key="md_month")
+    with md_cols[1]:
+        transporter_options = ["All", "Polytra", "Reload (Trammo)"]
+        md_transporter = st.selectbox("Transporter", transporter_options, index=0, key="md_transporter")
+
+    md_plan_df = read_df("SELECT allocation_mt FROM monthly_plan WHERE month_key=?", (md_mkey,))
+    md_allocation_mt = float(md_plan_df.iloc[0]["allocation_mt"]) if len(md_plan_df) else DEFAULT_MONTHLY_ALLOCATION_MT
+
+    md_year, md_month = [int(part) for part in md_mkey.split("-")]
+    md_month_label = date(md_year, md_month, 1).strftime("%B %Y")
+    st.caption(f"Summary — {md_month_label} • Target: {md_allocation_mt:,.0f} MT")
+
+    md_pickups = read_df(
+        "SELECT pickup_date, transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
+        (f"{md_mkey}%",),
+    )
+    if md_transporter != "All":
+        md_pickups = md_pickups[md_pickups["transporter_name"] == md_transporter].copy()
+
+    md_total_trucks = int(md_pickups["trucks_picked"].sum()) if len(md_pickups) else 0
+    md_total_mt = float(md_total_trucks * TRUCK_CAPACITY_MT)
 
     summary_cols = st.columns(3)
     with summary_cols[0]:
@@ -1191,7 +1312,7 @@ elif page == "Monthly Data":
                 <p class="metric-title">Total Picked (MT)</p>
                 <div class="metric-blocks single">
                     <div class="metric-block">
-                        <span class="metric-block-value">{total_mt_picked:,.0f}</span>
+                        <span class="metric-block-value">{md_total_mt:,.0f}</span>
                     </div>
                 </div>
             </div>
@@ -1205,7 +1326,7 @@ elif page == "Monthly Data":
                 <p class="metric-title">Total Trucks</p>
                 <div class="metric-blocks single">
                     <div class="metric-block">
-                        <span class="metric-block-value">{total_trucks_picked:,}</span>
+                        <span class="metric-block-value">{md_total_trucks:,}</span>
                     </div>
                 </div>
             </div>
@@ -1213,7 +1334,7 @@ elif page == "Monthly Data":
             unsafe_allow_html=True,
         )
     with summary_cols[2]:
-        over_target_mt = max(0, total_mt_picked - allocation_mt)
+        over_target_mt = max(0, md_total_mt - md_allocation_mt)
         st.markdown(
             f"""
             <div class="metric-card compact">
@@ -1230,12 +1351,12 @@ elif page == "Monthly Data":
 
     st.divider()
     st.subheader("Daily Pickups")
-    if len(trans_daily_pickups):
-        daily_view = trans_daily_pickups.copy()
+    if len(md_pickups):
+        daily_view = md_pickups.copy()
         daily_view["mt"] = daily_view["trucks_picked"] * TRUCK_CAPACITY_MT
         st.dataframe(daily_view, use_container_width=True, hide_index=True)
     else:
-        st.info("No pickup data logged for this month.")
+        st.info("No pickup data logged for this selection.")
 
 elif page == "Settings":
     st.title("Settings")
