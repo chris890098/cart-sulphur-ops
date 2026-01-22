@@ -7,6 +7,8 @@ import plotly.express as px
 import numpy as np
 import os
 import math
+import base64
+from io import BytesIO
 import calendar
 from PIL import Image
 
@@ -165,6 +167,29 @@ CUSTOM_CSS = """
     }
     .card-row-gap {
         height: 0.35rem;
+    }
+    .dashboard-header {
+        display: grid;
+        grid-template-columns: 1fr 240px;
+        align-items: center;
+        margin-top: 0.2rem;
+        margin-bottom: 0.4rem;
+        min-height: 90px;
+    }
+    .dashboard-title {
+        text-align: left;
+        margin: 0;
+        font-size: 2.4rem;
+        font-weight: 800;
+        color: #37f6e6;
+        letter-spacing: 0.02em;
+    }
+    .dashboard-logo {
+        width: 224px;
+        max-width: 22vw;
+        height: auto;
+        justify-self: end;
+        margin-top: 9mm;
     }
     .sim-footer-card {
         margin-bottom: 0.6rem;
@@ -373,18 +398,27 @@ migrate_db()
 
 today = date.today()
 current_mkey = month_key_for(today)
-LOGO_PATH = "assets/cart-logo.png"
+SIDEBAR_LOGO_PATH = "assets/cart-full-logo.png"
+DASHBOARD_LOGO_PATH = "assets/cart-full-logo-white.png"
 
-def load_logo_icon(path: str):
+def load_logo_image(path: str, width: int | None = None):
     try:
         img = Image.open(path).convert("RGBA")
     except (OSError, FileNotFoundError):
         return None
-    w, h = img.size
-    size = int(h * 0.7)
-    y0 = max(0, (h - size) // 2)
-    x0 = 0
-    return img.crop((x0, y0, min(w, x0 + size), min(h, y0 + size)))
+    if width:
+        scale = width / img.size[0]
+        height = max(1, int(img.size[1] * scale))
+        img = img.resize((width, height), Image.LANCZOS)
+    return img
+
+def image_to_data_uri(path: str) -> str | None:
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    return f"data:image/png;base64,{base64.b64encode(data).decode('ascii')}"
 
 def list_month_keys():
     months = set()
@@ -398,10 +432,10 @@ def list_month_keys():
     return sorted(months, reverse=True)
 
 # ─── Load Data ─────────────────────────────────────────────────────────────
-logo_icon = load_logo_icon(LOGO_PATH)
-if logo_icon:
-    st.sidebar.image(logo_icon, width=72)
-    st.markdown("<div style='margin-top:0.4rem;'></div>", unsafe_allow_html=True)
+sidebar_logo = load_logo_image(SIDEBAR_LOGO_PATH, width=380)
+if sidebar_logo:
+    st.sidebar.image(sidebar_logo, width=190)
+    st.markdown("<div style='margin-top:0.3rem;'></div>", unsafe_allow_html=True)
 st.sidebar.title("CART OPS")
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
@@ -482,15 +516,17 @@ days_left = max(0, (finish_by_date - as_of_date).days)
 days_until_finish = max(1, (finish_by_date - as_of_date).days)
 
 if page == "Dashboard":
-    title_cols = st.columns([4, 14, 1])
-    with title_cols[0]:
-        if logo_icon:
-            st.markdown("<div style='margin-top:0.4rem;'></div>", unsafe_allow_html=True)
-            st.image(logo_icon, width=84)
-    with title_cols[1]:
-        st.title("CART SULPHUR OPS • CONTROL CENTER")
-    with title_cols[2]:
-        st.empty()
+    dash_logo_uri = image_to_data_uri(DASHBOARD_LOGO_PATH)
+    logo_html = f"<img src='{dash_logo_uri}' class='dashboard-logo' />" if dash_logo_uri else ""
+    st.markdown(
+        f"""
+        <div class="dashboard-header">
+            <h1 class="dashboard-title">SULPHUR OPS • CONTROL CENTER</h1>
+            <div class="dashboard-logo-wrap">{logo_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.subheader(f"Summary — {month_start.strftime('%B %Y')}")
 
     # KPI Metrics
