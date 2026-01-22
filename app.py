@@ -482,13 +482,15 @@ days_left = max(0, (finish_by_date - as_of_date).days)
 days_until_finish = max(1, (finish_by_date - as_of_date).days)
 
 if page == "Dashboard":
-    title_cols = st.columns([2, 11])
+    title_cols = st.columns([4, 14, 1])
     with title_cols[0]:
         if logo_icon:
             st.markdown("<div style='margin-top:0.4rem;'></div>", unsafe_allow_html=True)
             st.image(logo_icon, width=84)
     with title_cols[1]:
         st.title("CART SULPHUR OPS • CONTROL CENTER")
+    with title_cols[2]:
+        st.empty()
     st.subheader(f"Summary — {month_start.strftime('%B %Y')}")
 
     # KPI Metrics
