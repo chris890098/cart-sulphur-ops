@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 import os
+import calendar
 from PIL import Image
 
 # ─── Theme & Layout ────────────────────────────────────────────────────────
@@ -161,6 +162,9 @@ CUSTOM_CSS = """
     .section-gap {
         height: 0.8rem;
     }
+    .card-row-gap {
+        height: 0.35rem;
+    }
     @media (max-width: 768px) {
         .modebar { display: none !important; }
     }
@@ -212,10 +216,29 @@ def migrate_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             month_key TEXT UNIQUE NOT NULL,
             orders_paid INTEGER NOT NULL,
-            orders_open INTEGER NOT NULL
+            orders_open INTEGER NOT NULL,
+            orders_paid_polytra INTEGER NOT NULL DEFAULT 0,
+            orders_paid_trammo INTEGER NOT NULL DEFAULT 0,
+            orders_paid_polytra_base INTEGER NOT NULL DEFAULT 0,
+            orders_paid_trammo_base INTEGER NOT NULL DEFAULT 0
         )
         """)
         conn.commit()
+    else:
+        cur.execute("PRAGMA table_info(loading_orders)")
+        loading_cols = [col[1] for col in cur.fetchall()]
+        if "orders_paid_polytra" not in loading_cols:
+            cur.execute("ALTER TABLE loading_orders ADD COLUMN orders_paid_polytra INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        if "orders_paid_trammo" not in loading_cols:
+            cur.execute("ALTER TABLE loading_orders ADD COLUMN orders_paid_trammo INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        if "orders_paid_polytra_base" not in loading_cols:
+            cur.execute("ALTER TABLE loading_orders ADD COLUMN orders_paid_polytra_base INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        if "orders_paid_trammo_base" not in loading_cols:
+            cur.execute("ALTER TABLE loading_orders ADD COLUMN orders_paid_trammo_base INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
     
     if table_exists("transporters"):
         cur.execute("""
@@ -308,8 +331,19 @@ def ensure_loading_orders(mkey: str):
     cur.execute("SELECT id FROM loading_orders WHERE month_key=?", (mkey,))
     if not cur.fetchone():
         cur.execute(
-            "INSERT INTO loading_orders(month_key, orders_paid, orders_open) VALUES(?,?,?)",
-            (mkey, 0, 0),
+            """
+            INSERT INTO loading_orders(
+                month_key,
+                orders_paid,
+                orders_open,
+                orders_paid_polytra,
+                orders_paid_trammo,
+                orders_paid_polytra_base,
+                orders_paid_trammo_base
+            )
+            VALUES(?,?,?,?,?,?,?)
+            """,
+            (mkey, 0, 0, 0, 0, 0, 0),
         )
         conn.commit()
     conn.close()
@@ -393,14 +427,32 @@ finish_by_day = int(plan_df.iloc[0]["finish_by_day"]) if len(plan_df) else DEFAU
 
 selected_year, selected_month = [int(part) for part in mkey.split("-")]
 month_start = date(selected_year, selected_month, 1)
-finish_by_date = date(selected_year, selected_month, min(finish_by_day, 28))
+last_day = calendar.monthrange(selected_year, selected_month)[1]
+finish_by_date = date(selected_year, selected_month, min(finish_by_day, last_day))
 as_of_date = today if mkey == current_mkey else finish_by_date
 
 trans_alloc_df = read_df("SELECT transporter_name, allocation_mt FROM transporter_allocation WHERE month_key=?", (mkey,))
 trans_alloc = {row["transporter_name"]: float(row["allocation_mt"]) for _, row in trans_alloc_df.iterrows()}
 
-loading_orders_df = read_df("SELECT orders_paid, orders_open FROM loading_orders WHERE month_key=?", (mkey,))
+loading_orders_df = read_df(
+    """
+    SELECT
+        orders_paid,
+        orders_open,
+        orders_paid_polytra,
+        orders_paid_trammo,
+        orders_paid_polytra_base,
+        orders_paid_trammo_base
+    FROM loading_orders
+    WHERE month_key=?
+    """,
+    (mkey,),
+)
 orders_paid = int(loading_orders_df.iloc[0]["orders_paid"]) if len(loading_orders_df) else 0
+orders_paid_polytra = int(loading_orders_df.iloc[0]["orders_paid_polytra"]) if len(loading_orders_df) else 0
+orders_paid_trammo = int(loading_orders_df.iloc[0]["orders_paid_trammo"]) if len(loading_orders_df) else 0
+orders_paid_polytra_base = int(loading_orders_df.iloc[0]["orders_paid_polytra_base"]) if len(loading_orders_df) else 0
+orders_paid_trammo_base = int(loading_orders_df.iloc[0]["orders_paid_trammo_base"]) if len(loading_orders_df) else 0
 
 trans_daily_pickups = read_df(
     "SELECT pickup_date, transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
@@ -419,8 +471,8 @@ tram_mt = float(tram_trucks * TRUCK_CAPACITY_MT)
 remaining = allocation_mt - total_mt_picked
 days_left = max(0, (finish_by_date - as_of_date).days)
 
-# Calculate days until 24th for transporter performance
-days_until_24 = max(1, (date(selected_year, selected_month, 24) - as_of_date).days)
+# Calculate days until finish-by for transporter performance
+days_until_finish = max(1, (finish_by_date - as_of_date).days)
 
 if page == "Dashboard":
     title_cols = st.columns([2, 11])
@@ -517,6 +569,10 @@ if page == "Dashboard":
     paid_trucks_covered = orders_paid
     paid_mt_covered = paid_trucks_covered * TRUCK_CAPACITY_MT
     paid_remaining = max(0, orders_paid - total_trucks_picked)
+    poly_used_since_alloc = max(0, poly_trucks - orders_paid_polytra_base)
+    tram_used_since_alloc = max(0, tram_trucks - orders_paid_trammo_base)
+    poly_paid_remaining = max(0, orders_paid_polytra - poly_used_since_alloc)
+    tram_paid_remaining = max(0, orders_paid_trammo - tram_used_since_alloc)
     remaining_orders = max(0, planned_orders - (paid_remaining + total_trucks_picked))
 
     lo_cols = st.columns(3)
@@ -556,6 +612,36 @@ if page == "Dashboard":
                 <div class="metric-blocks single">
                     <div class="metric-block">
                         <span class="metric-block-value">{remaining_orders}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    st.markdown("<div class='card-row-gap'></div>", unsafe_allow_html=True)
+    lo_alloc_cols = st.columns(2)
+    with lo_alloc_cols[0]:
+        st.markdown(
+            f"""
+            <div class="metric-card compact">
+                <p class="metric-title">Polytra Paid Remaining</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{poly_paid_remaining}</span>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with lo_alloc_cols[1]:
+        st.markdown(
+            f"""
+            <div class="metric-card compact">
+                <p class="metric-title">Reload (Trammo) Paid Remaining</p>
+                <div class="metric-blocks single">
+                    <div class="metric-block">
+                        <span class="metric-block-value">{tram_paid_remaining}</span>
                     </div>
                 </div>
             </div>
@@ -748,9 +834,9 @@ if page == "Dashboard":
         poly_pct = (poly_mt / poly_alloc * 100) if poly_alloc > 0 else 0
         poly_pct = min(poly_pct, 100)  # Cap at 100% for gauge
         
-        # Calculate trucks per day needed to complete by 24th
+        # Calculate trucks per day needed to complete by finish-by
         poly_remaining = poly_alloc - poly_mt
-        poly_trucks_per_day = poly_remaining / (TRUCK_CAPACITY_MT * days_until_24) if days_until_24 > 0 else 0
+        poly_trucks_per_day = poly_remaining / (TRUCK_CAPACITY_MT * days_until_finish) if days_until_finish > 0 else 0
         
         fig_poly = go.Figure(go.Indicator(
             mode="gauge+number+delta",
@@ -820,9 +906,9 @@ if page == "Dashboard":
         tram_pct = (tram_mt / tram_alloc * 100) if tram_alloc > 0 else 0
         tram_pct = min(tram_pct, 100)  # Cap at 100% for gauge
         
-        # Calculate trucks per day needed to complete by 24th
+        # Calculate trucks per day needed to complete by finish-by
         tram_remaining = tram_alloc - tram_mt
-        tram_trucks_per_day = tram_remaining / (TRUCK_CAPACITY_MT * days_until_24) if days_until_24 > 0 else 0
+        tram_trucks_per_day = tram_remaining / (TRUCK_CAPACITY_MT * days_until_finish) if days_until_finish > 0 else 0
         
         fig_tram = go.Figure(go.Indicator(
             mode="gauge+number+delta",
@@ -1185,14 +1271,53 @@ elif page == "Settings":
 
     st.divider()
     st.subheader("Loading Orders")
-    new_orders_paid = st.number_input("Orders paid", min_value=0, step=1, value=int(orders_paid))
+    lo_col1, lo_col2, lo_col3 = st.columns(3)
+    with lo_col1:
+        new_orders_paid = st.number_input("Orders paid", min_value=0, step=1, value=int(orders_paid))
+    with lo_col2:
+        new_orders_paid_poly = st.number_input(
+            "Polytra paid orders",
+            min_value=0,
+            step=1,
+            value=int(orders_paid_polytra),
+        )
+    with lo_col3:
+        new_orders_paid_tram = st.number_input(
+            "Reload (Trammo) paid orders",
+            min_value=0,
+            step=1,
+            value=int(orders_paid_trammo),
+        )
 
     if st.button("Save Loading Orders"):
-        exec_sql(
-            "UPDATE loading_orders SET orders_paid=?, orders_open=? WHERE month_key=?",
-            (new_orders_paid, 0, mkey),
-        )
-        st.success("✅ Loading orders saved!")
+        new_paid_remaining = max(0, new_orders_paid - total_trucks_picked)
+        if new_orders_paid_poly + new_orders_paid_tram > new_paid_remaining:
+            st.error("Allocated paid orders cannot exceed Paid Orders Remaining.")
+        else:
+            exec_sql(
+                """
+                UPDATE loading_orders
+                SET
+                    orders_paid=?,
+                    orders_open=?,
+                    orders_paid_polytra=?,
+                    orders_paid_trammo=?,
+                    orders_paid_polytra_base=?,
+                    orders_paid_trammo_base=?
+                WHERE month_key=?
+                """,
+                (
+                    new_orders_paid,
+                    0,
+                    new_orders_paid_poly,
+                    new_orders_paid_tram,
+                    poly_trucks,
+                    tram_trucks,
+                    mkey,
+                ),
+            )
+            st.success("✅ Loading orders saved!")
+            st.rerun()
 
     st.divider()
     st.subheader("⚠️ Danger Zone")
