@@ -63,7 +63,7 @@ CUSTOM_CSS = """
     }
     [data-testid="stAppViewContainer"] .block-container {
         padding-top: 0;
-        margin-top: -0.35cm;
+        margin-top: -0.1cm;
     }
     header[data-testid="stHeader"] {
         background: transparent;
