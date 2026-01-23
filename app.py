@@ -88,6 +88,25 @@ CUSTOM_CSS = """
         opacity: 1 !important;
         pointer-events: auto !important;
     }
+    @media (max-width: 768px) {
+        [data-testid="stSidebar"] {
+            width: 0;
+            min-width: 0;
+            max-width: 0;
+            transform: translateX(-110%) !important;
+            box-shadow: none;
+        }
+        [data-testid="stSidebar"][aria-expanded="true"] {
+            width: 14rem !important;
+            min-width: 14rem !important;
+            max-width: 14rem !important;
+            transform: translateX(0) !important;
+            box-shadow: 0 18px 40px rgba(13, 10, 22, 0.6);
+        }
+        [data-testid="stSidebarCollapseButton"] {
+            display: flex !important;
+        }
+    }
     [data-testid="stSidebarCollapseButton"] button {
         color: #ffffff;
         font-weight: 700;
