@@ -16,7 +16,7 @@ from PIL import Image, ImageFilter, ImageChops
 st.set_page_config(
     page_title="CART SULPHUR OPS • 2026",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 CUSTOM_CSS = """
@@ -59,11 +59,11 @@ CUSTOM_CSS = """
     }
     [data-testid="stSidebar"] .block-container {
         padding-top: 0;
-        margin-top: -0.35cm;
+        margin-top: -0.55cm;
     }
     [data-testid="stAppViewContainer"] .block-container {
         padding-top: 0;
-        margin-top: -0.1cm;
+        margin-top: -0.3cm;
     }
     header[data-testid="stHeader"] {
         background: transparent;
