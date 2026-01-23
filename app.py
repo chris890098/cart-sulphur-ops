@@ -1180,7 +1180,7 @@ if page == "Dashboard":
             mode="gauge+number+delta",
             value=poly_pct,
             title=dict(text="Polytra", font=dict(size=20, color='#9fb1ca')),
-            delta=dict(reference=100, suffix="% to target", position="bottom"),
+            delta=dict(reference=100, suffix="% to target", position="bottom", font=dict(size=12)),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#2f80ff'),
                 bar=dict(color='#2f80ff', thickness=0.75),
@@ -1201,6 +1201,28 @@ if page == "Dashboard":
             domain=dict(x=[0, 1], y=[0, 1]),
             number=dict(suffix='%', font=dict(size=24, color='#2f80ff'))
         ))
+        fig_poly.update_layout(
+            annotations=[
+                dict(
+                    x=0.5,
+                    y=0.45,
+                    xref="paper",
+                    yref="paper",
+                    text=f"{poly_pct:.1f}%",
+                    showarrow=False,
+                    font=dict(size=24, color="#2f80ff"),
+                ),
+                dict(
+                    x=0.5,
+                    y=0.36,
+                    xref="paper",
+                    yref="paper",
+                    text=f"▼{poly_pct-100:.1f}% to target",
+                    showarrow=False,
+                    font=dict(size=12, color="#ff4d4d"),
+                ),
+            ]
+        )
         fig_poly.update_layout(
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0.1)',
@@ -1252,7 +1274,7 @@ if page == "Dashboard":
             mode="gauge+number+delta",
             value=tram_pct,
             title=dict(text="Reload (Trammo)", font=dict(size=20, color='#9fb1ca')),
-            delta=dict(reference=100, suffix="% to target", position="bottom"),
+            delta=dict(reference=100, suffix="% to target", position="bottom", font=dict(size=12)),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#ff9f1a'),
                 bar=dict(color='#ff9f1a', thickness=0.75),
@@ -1273,6 +1295,28 @@ if page == "Dashboard":
             domain=dict(x=[0, 1], y=[0, 1]),
             number=dict(suffix='%', font=dict(size=24, color='#ff9f1a'))
         ))
+        fig_tram.update_layout(
+            annotations=[
+                dict(
+                    x=0.5,
+                    y=0.45,
+                    xref="paper",
+                    yref="paper",
+                    text=f"{tram_pct:.0f}%",
+                    showarrow=False,
+                    font=dict(size=24, color="#ff9f1a"),
+                ),
+                dict(
+                    x=0.5,
+                    y=0.36,
+                    xref="paper",
+                    yref="paper",
+                    text=f"▼{tram_pct-100:.0f}% to target",
+                    showarrow=False,
+                    font=dict(size=12, color="#ff4d4d"),
+                ),
+            ]
+        )
         fig_tram.update_layout(
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0.1)',
