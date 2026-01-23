@@ -11,6 +11,7 @@ import io
 import base64
 import calendar
 from PIL import Image, ImageFilter, ImageChops
+import streamlit.components.v1 as components
 
 # ─── Theme & Layout ────────────────────────────────────────────────────────
 st.set_page_config(
@@ -394,6 +395,25 @@ CUSTOM_CSS = """
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+# Auto-collapse sidebar on mobile only.
+components.html(
+    """
+    <script>
+    (function() {
+      const isMobile = window.innerWidth <= 768;
+      if (!isMobile) return;
+      const sidebar = document.querySelector('[data-testid="stSidebar"]');
+      const btn = document.querySelector('[data-testid="stSidebarCollapseButton"] button');
+      if (sidebar && btn && sidebar.getAttribute('aria-expanded') === 'true') {
+        btn.click();
+      }
+    })();
+    </script>
+    """,
+    height=0,
+    width=0,
+)
 
 # ─── Database Setup ────────────────────────────────────────────────────────
 DB_PATH = os.getenv("DB_PATH", "cart_sulphur_ops.db")
