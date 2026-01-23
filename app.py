@@ -1177,10 +1177,9 @@ if page == "Dashboard":
         poly_trucks_per_day = poly_remaining / (TRUCK_CAPACITY_MT * days_until_finish) if days_until_finish > 0 else 0
         
         fig_poly = go.Figure(go.Indicator(
-            mode="gauge+number+delta",
+            mode="gauge",
             value=poly_pct,
             title=dict(text="Polytra", font=dict(size=20, color='#9fb1ca')),
-            delta=dict(reference=100, suffix="% to target", position="bottom", font=dict(size=12)),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#2f80ff'),
                 bar=dict(color='#2f80ff', thickness=0.75),
@@ -1198,8 +1197,7 @@ if page == "Dashboard":
                     value=100
                 )
             ),
-            domain=dict(x=[0, 1], y=[0, 1]),
-            number=dict(suffix='%', font=dict(size=24, color='#2f80ff'))
+            domain=dict(x=[0, 1], y=[0, 1])
         ))
         fig_poly.update_layout(
             annotations=[
@@ -1271,10 +1269,9 @@ if page == "Dashboard":
         tram_trucks_per_day = tram_remaining / (TRUCK_CAPACITY_MT * days_until_finish) if days_until_finish > 0 else 0
         
         fig_tram = go.Figure(go.Indicator(
-            mode="gauge+number+delta",
+            mode="gauge",
             value=tram_pct,
             title=dict(text="Reload (Trammo)", font=dict(size=20, color='#9fb1ca')),
-            delta=dict(reference=100, suffix="% to target", position="bottom", font=dict(size=12)),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#ff9f1a'),
                 bar=dict(color='#ff9f1a', thickness=0.75),
@@ -1292,8 +1289,7 @@ if page == "Dashboard":
                     value=100
                 )
             ),
-            domain=dict(x=[0, 1], y=[0, 1]),
-            number=dict(suffix='%', font=dict(size=24, color='#ff9f1a'))
+            domain=dict(x=[0, 1], y=[0, 1])
         ))
         fig_tram.update_layout(
             annotations=[
