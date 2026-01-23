@@ -837,11 +837,10 @@ if page == "Dashboard":
     paid_trucks_covered = orders_paid
     paid_mt_covered = paid_trucks_covered * TRUCK_CAPACITY_MT
     paid_remaining = max(0, orders_paid - total_trucks_picked)
-    poly_used_since_alloc = max(0, poly_trucks - orders_paid_polytra_base)
-    tram_used_since_alloc = max(0, tram_trucks - orders_paid_trammo_base)
-    poly_paid_remaining = max(0, orders_paid_polytra - poly_used_since_alloc)
-    tram_paid_remaining = max(0, orders_paid_trammo - tram_used_since_alloc)
-    remaining_orders = max(0, planned_orders - (paid_remaining + total_trucks_picked))
+    poly_paid_remaining = max(0, orders_paid_polytra - poly_trucks)
+    tram_paid_remaining = max(0, orders_paid_trammo - tram_trucks)
+    remaining_orders = max(0, planned_orders - orders_paid)
+    overpaid_orders = max(0, orders_paid - planned_orders)
 
     lo_cols = st.columns(3)
     with lo_cols[0]:
@@ -886,6 +885,8 @@ if page == "Dashboard":
             """,
             unsafe_allow_html=True,
         )
+    if overpaid_orders > 0:
+        st.info(f"Paid orders exceed plan by {overpaid_orders} trucks.")
     st.markdown("<div class='card-row-gap'></div>", unsafe_allow_html=True)
     lo_alloc_cols = st.columns(2)
     with lo_alloc_cols[0]:
@@ -1673,9 +1674,11 @@ elif page == "Settings":
         )
 
     if st.button("Save Loading Orders"):
-        new_paid_remaining = max(0, new_orders_paid - total_trucks_picked)
-        if new_orders_paid_poly + new_orders_paid_tram > new_paid_remaining:
-            st.error("Allocated paid orders cannot exceed Paid Orders Remaining.")
+        total_allocated = new_orders_paid_poly + new_orders_paid_tram
+        if total_allocated != new_orders_paid:
+            st.error(
+                f"Allocate all paid orders to a transporter. Assigned {total_allocated} of {new_orders_paid}."
+            )
         else:
             exec_sql(
                 """
