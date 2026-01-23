@@ -37,9 +37,9 @@ CUSTOM_CSS = """
         top: 0;
         left: 0;
         height: 100vh;
-        width: 10.8rem;
-        min-width: 10.8rem;
-        max-width: 10.8rem;
+        width: 14rem;
+        min-width: 14rem;
+        max-width: 14rem;
         z-index: 1000;
         box-shadow: 0 18px 40px rgba(13, 10, 22, 0.6);
         overflow: hidden;
@@ -50,20 +50,20 @@ CUSTOM_CSS = """
         pointer-events: auto !important;
     }
     [data-testid="stSidebar"][aria-expanded="false"] {
-        width: 10.8rem !important;
-        min-width: 10.8rem !important;
-        max-width: 10.8rem !important;
+        width: 14rem !important;
+        min-width: 14rem !important;
+        max-width: 14rem !important;
         transform: translateX(0) !important;
         visibility: visible !important;
         pointer-events: auto !important;
     }
     [data-testid="stSidebar"] .block-container {
         padding-top: 0;
-        margin-top: -0.75cm;
+        margin-top: -0.35cm;
     }
     [data-testid="stAppViewContainer"] .block-container {
         padding-top: 0;
-        margin-top: -0.75cm;
+        margin-top: -0.35cm;
     }
     header[data-testid="stHeader"] {
         background: transparent;
@@ -121,8 +121,8 @@ CUSTOM_CSS = """
         font-size: 26px;
         font-weight: 700;
         text-align: center;
-        color: #fbf5ff;
-        text-shadow: 0 0 12px rgba(255, 210, 255, 0.3);
+        color: #f2eafb;
+        text-shadow: 0 0 10px rgba(255, 210, 255, 0.22);
     }
     .stMetric [data-testid="stMetricDelta"],
     [data-testid="stMetricDelta"] {
@@ -190,11 +190,11 @@ CUSTOM_CSS = """
     .metric-block-value {
         font-size: 20px;
         font-weight: 700;
-        color: #fbf5ff;
+        color: #f2eafb;
         line-height: 1.1;
         text-align: center;
         width: 100%;
-        text-shadow: 0 0 10px rgba(255, 210, 255, 0.28);
+        text-shadow: 0 0 8px rgba(255, 210, 255, 0.22);
     }
     .metric-stack {
         background: rgba(34, 26, 48, 0.75);
@@ -221,8 +221,8 @@ CUSTOM_CSS = """
     .metric-value {
         font-size: 18px;
         font-weight: 700;
-        color: #fbf5ff;
-        text-shadow: 0 0 10px rgba(255, 210, 255, 0.28);
+        color: #f2eafb;
+        text-shadow: 0 0 8px rgba(255, 210, 255, 0.22);
     }
     h1, h2, h3 { color: #e7c6ff !important; }
     hr { border-color: rgba(190, 120, 255, 0.35) !important; }
