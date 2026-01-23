@@ -171,6 +171,7 @@ CUSTOM_CSS = """
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
+        position: relative;
     }
     .metric-title {
         font-size: 10px;
@@ -397,16 +398,11 @@ CUSTOM_CSS = """
     .sim-footer-card {
         margin-bottom: 0.6rem;
     }
-    .mini-info-anchor {
-        position: relative;
-        height: 0;
-        margin: 0;
-    }
     .mini-info {
         position: absolute;
-        top: -4.6rem;
-        left: 0;
-        right: 0;
+        top: -1.6rem;
+        left: 50%;
+        transform: translateX(-50%);
         display: flex;
         gap: 0.6rem;
         justify-content: center;
@@ -418,8 +414,8 @@ CUSTOM_CSS = """
         font-size: 0.72rem;
         color: #d7c3ff;
         text-align: center;
-        margin: 0 auto;
         width: fit-content;
+        z-index: 2;
     }
     .mini-info strong {
         color: #f2eafb;
@@ -850,18 +846,11 @@ if page == "Dashboard":
                 last_tram_date = pd.to_datetime(tram_dates).max().strftime("%b %d")
         st.markdown(
             f"""
-            <div class="mini-info-anchor">
+            <div class="metric-card">
                 <div class="mini-info">
                     <span>Polytra <strong>{last_poly_date}</strong></span>
                     <span>Reload <strong>{last_tram_date}</strong></span>
                 </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f"""
-            <div class="metric-card">
                 <p class="metric-title">Days Left</p>
                 <div class="metric-blocks single">
                     <div class="metric-block">
