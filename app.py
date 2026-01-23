@@ -1294,7 +1294,7 @@ if page == "Dashboard":
         
         st.plotly_chart(
             fig,
-            width="stretch",
+            use_container_width=True,
             config={
                 "displayModeBar": False,
                 "responsive": True,
@@ -1904,9 +1904,9 @@ elif page == "Monthly Data":
             yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.08)"),
             title=dict(font=dict(size=14, color="#d9c7ff")),
         )
-        st.plotly_chart(fig_md, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig_md, use_container_width=True, config={"displayModeBar": False})
 
-        st.dataframe(daily_view, width="stretch", hide_index=True)
+        st.dataframe(daily_view, use_container_width=True, hide_index=True)
     else:
         st.info("No pickup data logged for this selection.")
 
