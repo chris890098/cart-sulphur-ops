@@ -285,7 +285,7 @@ CUSTOM_CSS = """
         position: absolute;
         left: 0;
         right: 0;
-        bottom: 9px;
+        bottom: -6px;
         width: 97%;
         height: 2px;
         background: rgba(208, 140, 255, 0.55);
