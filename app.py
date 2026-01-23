@@ -7,32 +7,97 @@ import plotly.express as px
 import numpy as np
 import os
 import math
+import io
 import base64
-from io import BytesIO
 import calendar
-from PIL import Image
+from PIL import Image, ImageFilter, ImageChops
 
 # ─── Theme & Layout ────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="CART SULPHUR OPS • 2026",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 CUSTOM_CSS = """
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <style>
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"] {
+        font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif !important;
+    }
     [data-testid="stAppViewContainer"] {
-        background: linear-gradient(135deg, #0f0f2d 0%, #000814 100%);
-        color: #e0f7ff;
+        background: radial-gradient(1200px 600px at 15% 10%, rgba(120, 70, 190, 0.18), transparent 60%),
+                    linear-gradient(135deg, #120f1b 0%, #171225 45%, #0f0c18 100%);
+        color: #efe6ff;
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, rgba(22, 18, 32, 0.98) 0%, rgba(16, 13, 24, 0.98) 100%);
+        border-right: 1px solid rgba(214, 170, 255, 0.18);
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        width: 10.8rem;
+        min-width: 10.8rem;
+        max-width: 10.8rem;
+        z-index: 1000;
+        box-shadow: 0 18px 40px rgba(13, 10, 22, 0.6);
+        overflow: hidden;
+        will-change: transform;
+        transition: none;
+        transform: translateX(0) !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+    [data-testid="stSidebar"][aria-expanded="false"] {
+        width: 10.8rem !important;
+        min-width: 10.8rem !important;
+        max-width: 10.8rem !important;
+        transform: translateX(0) !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+    [data-testid="stSidebar"] .block-container {
+        padding-top: 0;
+        margin-top: -0.75cm;
     }
     [data-testid="stAppViewContainer"] .block-container {
-        padding-top: 1.6rem;
+        padding-top: 0;
+        margin-top: -0.75cm;
+    }
+    header[data-testid="stHeader"] {
+        background: transparent;
+        box-shadow: none;
+        height: 0;
+        padding: 0;
+    }
+    [data-testid="stSidebarCollapseButton"] {
+        display: none !important;
+        position: fixed;
+        top: 0.7rem;
+        left: 0.85rem;
+        z-index: 1001;
+        background: linear-gradient(135deg, rgba(255, 94, 197, 0.85), rgba(188, 92, 255, 0.85));
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 999px;
+        padding: 0.35rem 0.7rem;
+        box-shadow: 0 8px 20px rgba(188, 92, 255, 0.25);
+        align-items: center;
+        justify-content: center;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+    [data-testid="stSidebarCollapseButton"] button {
+        color: #ffffff;
+        font-weight: 700;
+        letter-spacing: 0.08em;
     }
     .stMetric,
     [data-testid="stMetric"] {
-        background: rgba(10, 25, 60, 0.45);
+        background: rgba(34, 26, 48, 0.75);
         backdrop-filter: blur(10px);
-        border: 1px solid rgba(0, 255, 200, 0.18);
+        border: 1px solid rgba(214, 170, 255, 0.28);
         border-radius: 16px;
         padding: 1rem;
         min-height: 120px;
@@ -43,7 +108,7 @@ CUSTOM_CSS = """
     [data-testid="stMetricLabel"],
     [data-testid="stMetric"] [data-testid="stMetricLabel"],
     .stMetric label {
-        font-size: 12px !important;
+        font-size: 10px !important;
         text-align: center;
         width: 100%;
     }
@@ -56,6 +121,8 @@ CUSTOM_CSS = """
         font-size: 26px;
         font-weight: 700;
         text-align: center;
+        color: #fbf5ff;
+        text-shadow: 0 0 12px rgba(255, 210, 255, 0.3);
     }
     .stMetric [data-testid="stMetricDelta"],
     [data-testid="stMetricDelta"] {
@@ -64,9 +131,9 @@ CUSTOM_CSS = """
         text-align: center;
     }
     .metric-card {
-        background: rgba(10, 25, 60, 0.45);
+        background: rgba(34, 26, 48, 0.75);
         backdrop-filter: blur(10px);
-        border: 1px solid rgba(0, 255, 200, 0.18);
+        border: 1px solid rgba(214, 170, 255, 0.28);
         border-radius: 16px;
         padding: 1rem;
         min-height: 120px;
@@ -75,8 +142,8 @@ CUSTOM_CSS = """
         justify-content: flex-start;
     }
     .metric-title {
-        font-size: 12px;
-        color: #e0f7ff;
+        font-size: 10px;
+        color: #f2e7ff;
         margin: 0;
         text-align: center;
         margin-bottom: 0.6rem;
@@ -90,7 +157,7 @@ CUSTOM_CSS = """
     .status-delta {
         font-size: 12px;
         font-weight: 600;
-        color: #bfe8f4;
+        color: #c5a4ff;
         margin: 0.35rem 0 0 0;
         text-align: center;
     }
@@ -117,21 +184,22 @@ CUSTOM_CSS = """
         text-align: center;
     }
     .metric-block-label {
-        font-size: 12px;
-        color: #bfe8f4;
+        font-size: 11px;
+        color: #cdb8ff;
     }
     .metric-block-value {
         font-size: 20px;
         font-weight: 700;
-        color: #e0f7ff;
+        color: #fbf5ff;
         line-height: 1.1;
         text-align: center;
         width: 100%;
+        text-shadow: 0 0 10px rgba(255, 210, 255, 0.28);
     }
     .metric-stack {
-        background: rgba(10, 25, 60, 0.45);
+        background: rgba(34, 26, 48, 0.75);
         backdrop-filter: blur(10px);
-        border: 1px solid rgba(0, 255, 200, 0.18);
+        border: 1px solid rgba(214, 170, 255, 0.28);
         border-radius: 16px;
         padding: 0.9rem 1rem;
         margin-top: 0.4rem;
@@ -141,55 +209,159 @@ CUSTOM_CSS = """
         justify-content: space-between;
         align-items: baseline;
         padding: 0.25rem 0;
-        border-bottom: 1px solid rgba(0, 255, 234, 0.12);
+        border-bottom: 1px solid rgba(214, 170, 255, 0.16);
     }
     .metric-row:last-child {
         border-bottom: none;
     }
     .metric-label {
         font-size: 13px;
-        color: #bfe8f4;
+        color: #cdb8ff;
     }
     .metric-value {
         font-size: 18px;
         font-weight: 700;
-        color: #e0f7ff;
+        color: #fbf5ff;
+        text-shadow: 0 0 10px rgba(255, 210, 255, 0.28);
     }
-    h1, h2, h3 { color: #00ffea !important; }
-    hr { border-color: rgba(0, 255, 234, 0.25) !important; }
+    h1, h2, h3 { color: #e7c6ff !important; }
+    hr { border-color: rgba(190, 120, 255, 0.35) !important; }
     .center-caption {
         text-align: center;
-        color: #8fd7e8;
-        margin: 0 0 0.5rem 0;
+        color: #d6b9ff;
+        margin: 1.8rem 0 0.5rem 0;
     }
     .section-gap {
         height: 0.8rem;
+    }
+    .section-gap-tight {
+        height: 0.2rem;
+    }
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #e7c6ff;
+        margin: 0;
+    }
+    .section-block {
+        margin: 0;
+    }
+    .section-block .section-content {
+        margin-top: 0.2rem;
+        margin-bottom: 0.2rem;
+    }
+    .section-divider {
+        border: 0;
+        height: 1px;
+        background: rgba(190, 120, 255, 0.35);
+        margin: 0.2rem 0 0.3rem 0;
     }
     .card-row-gap {
         height: 0.35rem;
     }
     .dashboard-header {
-        display: grid;
-        grid-template-columns: 1fr 240px;
+        display: flex;
+        justify-content: center;
         align-items: center;
         margin-top: 0.2rem;
-        margin-bottom: 0.4rem;
-        min-height: 90px;
+        margin-bottom: 1.2rem;
+        width: 100%;
     }
     .dashboard-title {
-        text-align: left;
+        text-align: center;
         margin: 0;
         font-size: 2.4rem;
         font-weight: 800;
-        color: #37f6e6;
+        color: #f2d9ff;
         letter-spacing: 0.02em;
+        width: 100%;
+        display: inline-block;
+        padding: 0;
+        position: relative;
+        line-height: 1.05;
     }
-    .dashboard-logo {
-        width: 224px;
-        max-width: 22vw;
-        height: auto;
-        justify-self: end;
-        margin-top: 9mm;
+    .dashboard-title::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 9px;
+        width: 97%;
+        height: 2px;
+        background: rgba(208, 140, 255, 0.55);
+        border-radius: 999px;
+    }
+    .title-icon {
+        color: #ffffff;
+        margin-right: 0.5rem;
+        font-size: 1.2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.2rem;
+        height: 1.2rem;
+        vertical-align: middle;
+        transform: translateY(-1px);
+    }
+    .stRadio [role="radiogroup"] {
+        margin-top: 0.6rem;
+        gap: 0.25rem;
+    }
+    .stRadio [role="radiogroup"] label {
+        margin: 0;
+    }
+    .stRadio [role="radiogroup"] input {
+        display: none;
+    }
+    .stRadio [role="radiogroup"] label > div {
+        padding: 0.6rem 0.9rem 0.6rem 1.1rem;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: #cdb8ff;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        position: relative;
+        transition: all 0.2s ease;
+    }
+    .stRadio [role="radiogroup"] label > div::before {
+        content: "";
+        position: absolute;
+        left: 0.5rem;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 62%;
+        border-radius: 3px;
+        background: rgba(214, 170, 255, 0.25);
+        transition: all 0.2s ease;
+    }
+    .stRadio [data-baseweb="radio"] > div:first-child,
+    .stRadio [data-baseweb="radio"] > div:first-child > div {
+        display: none !important;
+    }
+    .stRadio [role="radiogroup"] label > div:hover {
+        background: rgba(44, 34, 60, 0.6);
+        color: #efe6ff;
+    }
+    .stRadio [role="radiogroup"] input:checked + div {
+        background: transparent;
+        border-color: transparent;
+        color: #ffffff;
+        box-shadow: none;
+    }
+    .stRadio [role="radiogroup"] input:checked + div::before {
+        background: linear-gradient(180deg, rgba(255, 94, 197, 0.9), rgba(188, 92, 255, 0.9));
+        height: 72%;
+    }
+    .sidebar-nav-group {
+        margin-top: 1cm;
+    }
+    .sidebar-logo {
+        display: block;
+        width: 180px;
+        max-width: 100%;
+        margin: -1.7cm auto 0 auto;
     }
     .sim-footer-card {
         margin-bottom: 0.6rem;
@@ -398,8 +570,7 @@ migrate_db()
 
 today = date.today()
 current_mkey = month_key_for(today)
-SIDEBAR_LOGO_PATH = "assets/cart-full-logo.png"
-DASHBOARD_LOGO_PATH = "assets/cart-full-logo-white.png"
+SIDEBAR_LOGO_PATH = "assets/cart-full-logo-white.png"
 
 def load_logo_image(path: str, width: int | None = None):
     try:
@@ -412,13 +583,22 @@ def load_logo_image(path: str, width: int | None = None):
         img = img.resize((width, height), Image.LANCZOS)
     return img
 
-def image_to_data_uri(path: str) -> str | None:
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-    except OSError:
-        return None
-    return f"data:image/png;base64,{base64.b64encode(data).decode('ascii')}"
+def enhance_sidebar_logo(img: Image.Image) -> Image.Image:
+    alpha = img.split()[-1]
+    glow = Image.new("RGBA", img.size, (255, 120, 230, 0))
+    glow.putalpha(alpha)
+    glow = glow.filter(ImageFilter.GaussianBlur(10))
+    r, g, b, a = glow.split()
+    a = a.point(lambda p: int(p * 0.35))
+    glow = Image.merge("RGBA", (r, g, b, a))
+    combined = Image.alpha_composite(glow, img)
+    return combined.filter(ImageFilter.UnsharpMask(radius=1.6, percent=180, threshold=2))
+
+def image_to_base64_png(img: Image.Image) -> str:
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
 
 def list_month_keys():
     months = set()
@@ -432,14 +612,19 @@ def list_month_keys():
     return sorted(months, reverse=True)
 
 # ─── Load Data ─────────────────────────────────────────────────────────────
-sidebar_logo = load_logo_image(SIDEBAR_LOGO_PATH, width=380)
+SIDEBAR_LOGO_RENDER_WIDTH = 180
+sidebar_logo = load_logo_image(SIDEBAR_LOGO_PATH, width=SIDEBAR_LOGO_RENDER_WIDTH * 2)
 if sidebar_logo:
-    st.sidebar.image(sidebar_logo, width=190)
-    st.markdown("<div style='margin-top:0.3rem;'></div>", unsafe_allow_html=True)
-st.sidebar.title("CART OPS")
+    sidebar_logo = enhance_sidebar_logo(sidebar_logo)
+    logo_b64 = image_to_base64_png(sidebar_logo)
+    st.sidebar.markdown(
+        f"<img class='sidebar-logo' src='data:image/png;base64,{logo_b64}' alt='CART logo' />",
+        unsafe_allow_html=True,
+    )
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 is_admin = False
+admin_param = ""
 if ADMIN_TOKEN:
     admin_param = st.query_params.get("admin", "")
     if isinstance(admin_param, list):
@@ -447,12 +632,13 @@ if ADMIN_TOKEN:
     if admin_param and admin_param == ADMIN_TOKEN:
         is_admin = True
 
+st.sidebar.markdown("<div class='sidebar-nav-group'>", unsafe_allow_html=True)
 if is_admin:
     page = st.sidebar.radio("Navigate", ["Dashboard", "Monthly Data", "Daily Planner", "Settings"])
 else:
     page = st.sidebar.radio("Navigate", ["Dashboard", "Monthly Data"])
-    st.sidebar.markdown("🔒 Admin pages hidden")
-    st.sidebar.caption("Admin access via URL only")
+    # Admin hints hidden for public view
+st.sidebar.markdown("</div>", unsafe_allow_html=True)
 
 available_months = list_month_keys()
 default_index = available_months.index(current_mkey) if current_mkey in available_months else 0
@@ -516,18 +702,20 @@ days_left = max(0, (finish_by_date - as_of_date).days)
 days_until_finish = max(1, (finish_by_date - as_of_date).days)
 
 if page == "Dashboard":
-    dash_logo_uri = image_to_data_uri(DASHBOARD_LOGO_PATH)
-    logo_html = f"<img src='{dash_logo_uri}' class='dashboard-logo' />" if dash_logo_uri else ""
     st.markdown(
-        f"""
+        """
         <div class="dashboard-header">
-            <h1 class="dashboard-title">SULPHUR OPS • CONTROL CENTER</h1>
-            <div class="dashboard-logo-wrap">{logo_html}</div>
+            <h1 class="dashboard-title">Sasol Sulphur • Control Centre</h1>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.subheader(f"Summary — {month_start.strftime('%B %Y')}")
+    st.markdown("<div class='section-block'>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='section-title'><span class='title-icon'>✦</span>Summary — {month_start.strftime('%B %Y')}</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='section-content'>", unsafe_allow_html=True)
 
     # KPI Metrics
     cols = st.columns(4)
@@ -599,17 +787,20 @@ if page == "Dashboard":
             """,
             unsafe_allow_html=True,
         )
+    st.markdown("</div>", unsafe_allow_html=True)
 
     over_target_mt = max(0, total_mt_picked - allocation_mt)
     if over_target_mt > 0:
         over_target_trucks = over_target_mt / TRUCK_CAPACITY_MT
         st.success(f"Over target by {over_target_mt:,.0f} MT ({over_target_trucks:.1f} trucks)")
 
-    st.divider()
-    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
+    st.markdown("<hr class='section-divider' />", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # Loading Orders Tracker
-    st.subheader("📦 Loading Orders")
+    st.markdown("<div class='section-block'>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Loading Orders</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-content'>", unsafe_allow_html=True)
     total_trucks_needed = allocation_mt / TRUCK_CAPACITY_MT
     planned_orders = int(np.ceil(total_trucks_needed))
     paid_trucks_covered = orders_paid
@@ -694,12 +885,14 @@ if page == "Dashboard":
             """,
             unsafe_allow_html=True,
         )
-
-    st.divider()
-    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<hr class='section-divider' />", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # Progress Analysis
-    st.subheader("📊 Progress Analysis")
+    st.markdown("<div class='section-block'>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Progress Analysis</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-content'>", unsafe_allow_html=True)
     if len(trans_daily_pickups) > 0:
         daily_agg = trans_daily_pickups.groupby("pickup_date")["trucks_picked"].sum().reset_index()
         daily_agg["daily_mt"] = daily_agg["trucks_picked"] * TRUCK_CAPACITY_MT
@@ -756,12 +949,12 @@ if page == "Dashboard":
                 """,
                 unsafe_allow_html=True,
             )
-
-    st.divider()
-    st.markdown("<div class='section-gap'></div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<hr class='section-divider' />", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # Main Progress Chart - Plotly with Futuristic Style
-    st.subheader("📈 Monthly Progress – Live Trajectory")
+    st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Monthly Progress – Live Trajectory</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='center-caption'>Monthly Progress to Target - {mkey}</div>", unsafe_allow_html=True)
     
     if len(trans_daily_pickups) > 0:
@@ -871,7 +1064,7 @@ if page == "Dashboard":
     st.divider()
 
     # Transporter Performance - Gauge Charts
-    st.subheader("🚛 Transporter Performance")
+    st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Transporter Performance</div>", unsafe_allow_html=True)
     
     col_poly, col_tram = st.columns(2)
     
@@ -887,7 +1080,7 @@ if page == "Dashboard":
         fig_poly = go.Figure(go.Indicator(
             mode="gauge+number+delta",
             value=poly_pct,
-            title=dict(text="Polytra", font=dict(size=20, color='#ffffff')),
+            title=dict(text="Polytra", font=dict(size=20, color='#9fb1ca')),
             delta=dict(reference=100, suffix="% to target"),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#2f80ff'),
@@ -912,8 +1105,8 @@ if page == "Dashboard":
         fig_poly.update_layout(
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0.1)',
-            height=350,
-            margin=dict(l=20, r=20, t=60, b=20),
+            height=320,
+            margin=dict(l=20, r=28, t=70, b=14),
             font=dict(color='#e0f7ff')
         )
         st.plotly_chart(fig_poly, use_container_width=True)
@@ -959,7 +1152,7 @@ if page == "Dashboard":
         fig_tram = go.Figure(go.Indicator(
             mode="gauge+number+delta",
             value=tram_pct,
-            title=dict(text="Reload (Trammo)", font=dict(size=20, color='#ffffff')),
+            title=dict(text="Reload (Trammo)", font=dict(size=20, color='#9fb1ca')),
             delta=dict(reference=100, suffix="% to target"),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#ff9f1a'),
@@ -984,8 +1177,8 @@ if page == "Dashboard":
         fig_tram.update_layout(
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0.1)',
-            height=350,
-            margin=dict(l=20, r=20, t=60, b=20),
+            height=320,
+            margin=dict(l=20, r=28, t=70, b=14),
             font=dict(color='#e0f7ff')
         )
         st.plotly_chart(fig_tram, use_container_width=True)
@@ -1022,7 +1215,7 @@ if page == "Dashboard":
     st.divider()
 
     # Real-time Simulation
-    st.subheader("🧮 Real-time Simulator")
+    st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Real-time Simulator</div>", unsafe_allow_html=True)
     with st.expander("Run simulation", expanded=False):
         sim_days = st.number_input("Days", min_value=1, step=1, value=5)
         sim_trucks_per_day = st.number_input("Trucks per day", min_value=0.0, step=0.5, value=1.0)
@@ -1167,7 +1360,7 @@ elif page == "Daily Planner":
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("🚛 Polytra Daily Pickups")
+        st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Polytra Daily Pickups</div>", unsafe_allow_html=True)
         with st.expander("Log Polytra Pickups", expanded=True):
             pickup_date_poly = st.date_input("Pickup date", value=today, key="poly_date")
             trucks_poly = st.number_input("Trucks picked", min_value=0, step=1, value=1, key="poly_trucks")
@@ -1236,7 +1429,7 @@ elif page == "Daily Planner":
                         st.rerun()
     
     with col2:
-        st.subheader("🚛 Trammo Daily Pickups")
+        st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Trammo Daily Pickups</div>", unsafe_allow_html=True)
         with st.expander("Log Trammo Pickups", expanded=True):
             pickup_date_tram = st.date_input("Pickup date", value=today, key="tram_date")
             trucks_tram = st.number_input("Trucks picked", min_value=0, step=1, value=1, key="tram_trucks")
