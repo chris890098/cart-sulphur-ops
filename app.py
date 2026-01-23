@@ -95,6 +95,16 @@ CUSTOM_CSS = """
             max-width: 0;
             transform: translateX(-110%) !important;
             box-shadow: none;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+        [data-testid="stSidebar"][aria-expanded="false"] {
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            transform: translateX(-110%) !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
         }
         [data-testid="stSidebar"][aria-expanded="true"] {
             width: 14rem !important;
@@ -102,6 +112,8 @@ CUSTOM_CSS = """
             max-width: 14rem !important;
             transform: translateX(0) !important;
             box-shadow: 0 18px 40px rgba(13, 10, 22, 0.6);
+            visibility: visible !important;
+            pointer-events: auto !important;
         }
         [data-testid="stSidebarCollapseButton"] {
             display: flex !important;
