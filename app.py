@@ -74,13 +74,13 @@ CUSTOM_CSS = """
     [data-testid="stSidebarCollapseButton"] {
         display: none !important;
         position: fixed;
-        top: 0.7rem;
+        top: 0.8rem;
         left: 0.85rem;
         z-index: 1001;
         background: linear-gradient(135deg, rgba(255, 94, 197, 0.85), rgba(188, 92, 255, 0.85));
         border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 999px;
-        padding: 0.35rem 0.7rem;
+        border-radius: 6px;
+        padding: 0.35rem 0.8rem;
         box-shadow: 0 8px 20px rgba(188, 92, 255, 0.25);
         align-items: center;
         justify-content: center;
@@ -400,9 +400,8 @@ CUSTOM_CSS = """
     }
     .mini-info {
         position: absolute;
-        top: -1.6rem;
-        left: 50%;
-        transform: translateX(-50%);
+        top: -4.6rem;
+        right: 0.6rem;
         display: flex;
         gap: 0.6rem;
         justify-content: center;
@@ -416,6 +415,9 @@ CUSTOM_CSS = """
         text-align: center;
         width: fit-content;
         z-index: 2;
+    }
+    .mini-info-top {
+        top: -7.4rem;
     }
     .mini-info strong {
         color: #f2eafb;
@@ -837,19 +839,41 @@ if page == "Dashboard":
     with cols[3]:
         last_poly_date = "—"
         last_tram_date = "—"
+        last_poly_trucks = 0
+        last_tram_trucks = 0
         if len(trans_daily_pickups):
             poly_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Polytra"]["pickup_date"]
             tram_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Reload (Trammo)"]["pickup_date"]
             if len(poly_dates):
-                last_poly_date = pd.to_datetime(poly_dates).max().strftime("%b %d")
+                poly_last_date = pd.to_datetime(poly_dates).max().date()
+                last_poly_date = poly_last_date.strftime("%b %d")
+                last_poly_trucks = int(
+                    trans_daily_pickups[
+                        (trans_daily_pickups["transporter_name"] == "Polytra")
+                        & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == poly_last_date)
+                    ]["trucks_picked"].sum()
+                )
             if len(tram_dates):
-                last_tram_date = pd.to_datetime(tram_dates).max().strftime("%b %d")
+                tram_last_date = pd.to_datetime(tram_dates).max().date()
+                last_tram_date = tram_last_date.strftime("%b %d")
+                last_tram_trucks = int(
+                    trans_daily_pickups[
+                        (trans_daily_pickups["transporter_name"] == "Reload (Trammo)")
+                        & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == tram_last_date)
+                    ]["trucks_picked"].sum()
+                )
+        last_update_date = "—"
+        if len(trans_daily_pickups):
+            last_update_date = pd.to_datetime(trans_daily_pickups["pickup_date"]).max().strftime("%b %d")
         st.markdown(
             f"""
             <div class="metric-card">
+                <div class="mini-info mini-info-top">
+                    <span>Last updated <strong>{last_update_date}</strong></span>
+                </div>
                 <div class="mini-info">
-                    <span>Polytra <strong>{last_poly_date}</strong></span>
-                    <span>Reload <strong>{last_tram_date}</strong></span>
+                    <span>Polytra <strong>{last_poly_date}</strong><br>{last_poly_trucks} trucks</span>
+                    <span>Reload <strong>{last_tram_date}</strong><br>{last_tram_trucks} trucks</span>
                 </div>
                 <p class="metric-title">Days Left</p>
                 <div class="metric-blocks single">
