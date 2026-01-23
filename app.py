@@ -11,7 +11,6 @@ import io
 import base64
 import calendar
 from PIL import Image, ImageFilter, ImageChops
-import streamlit.components.v1 as components
 
 # ─── Theme & Layout ────────────────────────────────────────────────────────
 st.set_page_config(
@@ -96,6 +95,16 @@ CUSTOM_CSS = """
             max-width: 0;
             transform: translateX(-110%) !important;
             box-shadow: none;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+        [data-testid="stSidebar"][aria-expanded="false"] {
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            transform: translateX(-110%) !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
         }
         [data-testid="stSidebar"][aria-expanded="true"] {
             width: 14rem !important;
@@ -103,6 +112,8 @@ CUSTOM_CSS = """
             max-width: 14rem !important;
             transform: translateX(0) !important;
             box-shadow: 0 18px 40px rgba(13, 10, 22, 0.6);
+            visibility: visible !important;
+            pointer-events: auto !important;
         }
         [data-testid="stSidebarCollapseButton"] {
             display: flex !important;
@@ -395,25 +406,6 @@ CUSTOM_CSS = """
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
-# Auto-collapse sidebar on mobile only.
-components.html(
-    """
-    <script>
-    (function() {
-      const isMobile = window.innerWidth <= 768;
-      if (!isMobile) return;
-      const sidebar = document.querySelector('[data-testid="stSidebar"]');
-      const btn = document.querySelector('[data-testid="stSidebarCollapseButton"] button');
-      if (sidebar && btn && sidebar.getAttribute('aria-expanded') === 'true') {
-        btn.click();
-      }
-    })();
-    </script>
-    """,
-    height=0,
-    width=0,
-)
 
 # ─── Database Setup ────────────────────────────────────────────────────────
 DB_PATH = os.getenv("DB_PATH", "cart_sulphur_ops.db")
