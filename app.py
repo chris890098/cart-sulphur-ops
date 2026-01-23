@@ -1180,7 +1180,7 @@ if page == "Dashboard":
             mode="gauge+number+delta",
             value=poly_pct,
             title=dict(text="Polytra", font=dict(size=20, color='#9fb1ca')),
-            delta=dict(reference=100, suffix="% to target"),
+            delta=dict(reference=100, suffix="% to target", position="bottom"),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#2f80ff'),
                 bar=dict(color='#2f80ff', thickness=0.75),
@@ -1252,7 +1252,7 @@ if page == "Dashboard":
             mode="gauge+number+delta",
             value=tram_pct,
             title=dict(text="Reload (Trammo)", font=dict(size=20, color='#9fb1ca')),
-            delta=dict(reference=100, suffix="% to target"),
+            delta=dict(reference=100, suffix="% to target", position="bottom"),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#ff9f1a'),
                 bar=dict(color='#ff9f1a', thickness=0.75),
