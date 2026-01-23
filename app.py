@@ -397,6 +397,34 @@ CUSTOM_CSS = """
     .sim-footer-card {
         margin-bottom: 0.6rem;
     }
+    .mini-info-anchor {
+        position: relative;
+        height: 0;
+        margin: 0;
+    }
+    .mini-info {
+        position: absolute;
+        top: -4.6rem;
+        left: 0;
+        right: 0;
+        display: flex;
+        gap: 0.6rem;
+        justify-content: center;
+        align-items: center;
+        padding: 0.4rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(36, 26, 52, 0.5);
+        border: 1px solid rgba(214, 170, 255, 0.2);
+        font-size: 0.72rem;
+        color: #d7c3ff;
+        text-align: center;
+        margin: 0 auto;
+        width: fit-content;
+    }
+    .mini-info strong {
+        color: #f2eafb;
+        font-weight: 600;
+    }
     [data-testid="stExpander"] .streamlit-expanderContent {
         padding-bottom: 0.8rem;
     }
@@ -412,6 +440,7 @@ DB_PATH = os.getenv("DB_PATH", "cart_sulphur_ops.db")
 DEFAULT_MONTHLY_ALLOCATION_MT = 1250
 DEFAULT_FINISH_BY_DAY = 25
 TRUCK_CAPACITY_MT = 34
+LOADING_ORDERS_TARGET_TRUCKS = 37
 
 def get_conn():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -751,13 +780,19 @@ if page == "Dashboard":
     # KPI Metrics
     cols = st.columns(4)
     with cols[0]:
+        target_trucks = allocation_mt / TRUCK_CAPACITY_MT
         st.markdown(
             f"""
             <div class="metric-card">
                 <p class="metric-title">Target (MT)</p>
-                <div class="metric-blocks single">
+                <div class="metric-blocks">
                     <div class="metric-block">
+                        <span class="metric-block-label">MT</span>
                         <span class="metric-block-value">{allocation_mt:,.0f}</span>
+                    </div>
+                    <div class="metric-block">
+                        <span class="metric-block-label">Trucks</span>
+                        <span class="metric-block-value">{target_trucks:,.1f}</span>
                     </div>
                 </div>
             </div>
@@ -804,6 +839,26 @@ if page == "Dashboard":
             unsafe_allow_html=True,
         )
     with cols[3]:
+        last_poly_date = "—"
+        last_tram_date = "—"
+        if len(trans_daily_pickups):
+            poly_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Polytra"]["pickup_date"]
+            tram_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Reload (Trammo)"]["pickup_date"]
+            if len(poly_dates):
+                last_poly_date = pd.to_datetime(poly_dates).max().strftime("%b %d")
+            if len(tram_dates):
+                last_tram_date = pd.to_datetime(tram_dates).max().strftime("%b %d")
+        st.markdown(
+            f"""
+            <div class="mini-info-anchor">
+                <div class="mini-info">
+                    <span>Polytra <strong>{last_poly_date}</strong></span>
+                    <span>Reload <strong>{last_tram_date}</strong></span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.markdown(
             f"""
             <div class="metric-card">
@@ -832,15 +887,13 @@ if page == "Dashboard":
     st.markdown("<div class='section-block'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Loading Orders</div>", unsafe_allow_html=True)
     st.markdown("<div class='section-content'>", unsafe_allow_html=True)
-    total_trucks_needed = allocation_mt / TRUCK_CAPACITY_MT
-    planned_orders = int(np.ceil(total_trucks_needed))
     paid_trucks_covered = orders_paid
     paid_mt_covered = paid_trucks_covered * TRUCK_CAPACITY_MT
     paid_remaining = max(0, orders_paid - total_trucks_picked)
     poly_paid_remaining = max(0, orders_paid_polytra - poly_trucks)
     tram_paid_remaining = max(0, orders_paid_trammo - tram_trucks)
-    remaining_orders = max(0, planned_orders - orders_paid)
-    overpaid_orders = max(0, orders_paid - planned_orders)
+    orders_paid_capped = min(orders_paid, LOADING_ORDERS_TARGET_TRUCKS)
+    remaining_orders = max(0, LOADING_ORDERS_TARGET_TRUCKS - orders_paid_capped)
 
     lo_cols = st.columns(3)
     with lo_cols[0]:
@@ -879,14 +932,15 @@ if page == "Dashboard":
                 <div class="metric-blocks single">
                     <div class="metric-block">
                         <span class="metric-block-value">{remaining_orders}</span>
+                        <span class="metric-block-label">{LOADING_ORDERS_TARGET_TRUCKS} trucks</span>
                     </div>
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    if overpaid_orders > 0:
-        st.info(f"Paid orders exceed plan by {overpaid_orders} trucks.")
+    if orders_paid >= LOADING_ORDERS_TARGET_TRUCKS:
+        st.success(f"Loading orders complete ({LOADING_ORDERS_TARGET_TRUCKS}/{LOADING_ORDERS_TARGET_TRUCKS}).")
     st.markdown("<div class='card-row-gap'></div>", unsafe_allow_html=True)
     lo_alloc_cols = st.columns(2)
     with lo_alloc_cols[0]:
