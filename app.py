@@ -64,6 +64,8 @@ CUSTOM_CSS = """
     [data-testid="stAppViewContainer"] .block-container {
         padding-top: 0;
         margin-top: -0.3cm;
+        padding-bottom: 0.5cm;
+        margin-bottom: 0.5cm;
     }
     header[data-testid="stHeader"] {
         background: transparent;
@@ -174,7 +176,7 @@ CUSTOM_CSS = """
         position: relative;
     }
     .metric-title {
-        font-size: 10px;
+        font-size: 12px;
         color: #f2e7ff;
         margin: 0;
         text-align: center;
@@ -274,6 +276,55 @@ CUSTOM_CSS = """
         font-weight: 700;
         color: #e7c6ff;
         margin: 0;
+    }
+    .filters-card {
+        background: rgba(34, 26, 48, 0.75);
+        border: 1px solid rgba(214, 170, 255, 0.28);
+        border-radius: 16px;
+        padding: 0.8rem 1rem 1rem 1rem;
+        margin: 0.4rem 0 0.8rem 0;
+    }
+    .filters-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #d7c3ff;
+        margin: 0 0 0.6rem 0;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    .metric-block-value.complete {
+        color: #c9f7d8;
+        text-shadow: 0 0 8px rgba(120, 255, 200, 0.25);
+    }
+    .filters-header {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 0.6rem;
+        margin: 0.2rem 0 0.7rem 0;
+        color: #d7c3ff;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .filters-hint {
+        font-size: 0.7rem;
+        color: #bba0ff;
+        letter-spacing: 0.05em;
+        text-transform: none;
+        font-weight: 500;
+    }
+    [data-testid="stSelectbox"] > div[data-baseweb="select"] > div {
+        background: rgba(36, 26, 52, 0.7) !important;
+        border: 1px solid rgba(214, 170, 255, 0.35) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 8px 18px rgba(20, 10, 35, 0.3);
+    }
+    [data-testid="stSelectbox"] label {
+        color: #e6d6ff !important;
+        font-weight: 600;
+        letter-spacing: 0.02em;
     }
     .section-block {
         margin: 0;
@@ -407,7 +458,7 @@ CUSTOM_CSS = """
         justify-content: center;
         align-items: center;
         padding: 0.4rem 0.6rem;
-        border-radius: 999px;
+        border-radius: 6px;
         background: rgba(36, 26, 52, 0.5);
         border: 1px solid rgba(214, 170, 255, 0.2);
         font-size: 0.72rem;
@@ -420,6 +471,38 @@ CUSTOM_CSS = """
         top: -7.4rem;
     }
     .mini-info strong {
+        color: #f2eafb;
+        font-weight: 600;
+    }
+    .sidebar-mini-wrap {
+        margin: 0.6rem 0 0.9rem 0;
+        display: grid;
+        gap: 0.5rem;
+        justify-items: center;
+        text-align: center;
+    }
+    .sidebar-mini-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+        width: 100%;
+    }
+    .sidebar-mini-info {
+        display: block;
+        padding: 0.45rem 0.6rem;
+        border-radius: 6px;
+        background: rgba(36, 26, 52, 0.5);
+        border: 1px solid rgba(214, 170, 255, 0.2);
+        font-size: 0.72rem;
+        text-align: center;
+        line-height: 1.2;
+    }
+    .sidebar-mini-info .mini-label,
+    .sidebar-mini-info .mini-trucks {
+        color: #d7c3ff;
+        font-weight: 600;
+    }
+    .sidebar-mini-info .mini-date {
         color: #f2eafb;
         font-weight: 600;
     }
@@ -629,6 +712,7 @@ migrate_db()
 today = date.today()
 current_mkey = month_key_for(today)
 SIDEBAR_LOGO_PATH = "assets/cart-full-logo-white.png"
+FOOTER_LOGO_MARK_PATH = "/Users/chris/Downloads/CART Logo Mark (White).png"
 
 def load_logo_image(path: str, width: int | None = None):
     try:
@@ -640,6 +724,22 @@ def load_logo_image(path: str, width: int | None = None):
         height = max(1, int(img.size[1] * scale))
         img = img.resize((width, height), Image.LANCZOS)
     return img
+
+def render_footer_logo(path: str, width: int = 90):
+    img = load_logo_image(path, width=width)
+    if not img:
+        return
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+    st.markdown(
+        f"""
+        <div style="margin: 0.8rem 0 0.2rem 0; display: flex; justify-content: center;">
+            <img src="data:image/png;base64,{encoded}" style="width: {width}px; height: auto;" />
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def enhance_sidebar_logo(img: Image.Image) -> Image.Image:
     alpha = img.split()[-1]
@@ -698,11 +798,9 @@ else:
     # Admin hints hidden for public view
 st.sidebar.markdown("</div>", unsafe_allow_html=True)
 
+
 available_months = list_month_keys()
-default_index = available_months.index(current_mkey) if current_mkey in available_months else 0
 mkey = current_mkey
-if page == "Monthly Data":
-    mkey = st.selectbox("Month", available_months, index=default_index)
 ensure_month_plan(mkey)
 ensure_loading_orders(mkey)
 
@@ -742,6 +840,58 @@ orders_paid_trammo_base = int(loading_orders_df.iloc[0]["orders_paid_trammo_base
 trans_daily_pickups = read_df(
     "SELECT pickup_date, transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
     (f"{mkey}%",)
+)
+
+last_poly_date = "—"
+last_tram_date = "—"
+last_poly_trucks = 0
+last_tram_trucks = 0
+last_update_date = "—"
+if len(trans_daily_pickups):
+    last_update_date = pd.to_datetime(trans_daily_pickups["pickup_date"]).max().strftime("%d %b")
+    poly_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Polytra"]["pickup_date"]
+    tram_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Reload (Trammo)"]["pickup_date"]
+    if len(poly_dates):
+        poly_last_date = pd.to_datetime(poly_dates).max().date()
+        last_poly_date = poly_last_date.strftime("%d %b")
+        last_poly_trucks = int(
+            trans_daily_pickups[
+                (trans_daily_pickups["transporter_name"] == "Polytra")
+                & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == poly_last_date)
+            ]["trucks_picked"].sum()
+        )
+    if len(tram_dates):
+        tram_last_date = pd.to_datetime(tram_dates).max().date()
+        last_tram_date = tram_last_date.strftime("%d %b")
+        last_tram_trucks = int(
+            trans_daily_pickups[
+                (trans_daily_pickups["transporter_name"] == "Reload (Trammo)")
+                & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == tram_last_date)
+            ]["trucks_picked"].sum()
+        )
+
+st.sidebar.markdown(
+    f"""
+    <div class="sidebar-mini-wrap">
+        <div class="sidebar-mini-info">
+            <span class="mini-label">Last updated</span>
+            <span class="mini-date">{last_update_date}</span>
+        </div>
+        <div class="sidebar-mini-row">
+            <div class="sidebar-mini-info">
+                <span class="mini-label">Polytra</span><br>
+                <span class="mini-date">{last_poly_date}</span><br>
+                <span class="mini-trucks">{last_poly_trucks} trucks</span>
+            </div>
+            <div class="sidebar-mini-info">
+                <span class="mini-label">Reload</span><br>
+                <span class="mini-date">{last_tram_date}</span><br>
+                <span class="mini-trucks">{last_tram_trucks} trucks</span>
+            </div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 total_trucks_picked = int(trans_daily_pickups["trucks_picked"].sum()) if len(trans_daily_pickups) else 0
@@ -868,13 +1018,6 @@ if page == "Dashboard":
         st.markdown(
             f"""
             <div class="metric-card">
-                <div class="mini-info mini-info-top">
-                    <span>Last updated <strong>{last_update_date}</strong></span>
-                </div>
-                <div class="mini-info">
-                    <span>Polytra <strong>{last_poly_date}</strong><br>{last_poly_trucks} trucks</span>
-                    <span>Reload <strong>{last_tram_date}</strong><br>{last_tram_trucks} trucks</span>
-                </div>
                 <p class="metric-title">Days Left</p>
                 <div class="metric-blocks single">
                     <div class="metric-block">
@@ -938,13 +1081,14 @@ if page == "Dashboard":
             unsafe_allow_html=True,
         )
     with lo_cols[2]:
+        complete_class = "complete" if remaining_orders == 0 else ""
         st.markdown(
             f"""
             <div class="metric-card compact">
                 <p class="metric-title">Orders To Pay</p>
                 <div class="metric-blocks single">
                     <div class="metric-block">
-                        <span class="metric-block-value">{remaining_orders}</span>
+                        <span class="metric-block-value {complete_class}">{remaining_orders}</span>
                         <span class="metric-block-label">{LOADING_ORDERS_TARGET_TRUCKS} trucks</span>
                     </div>
                 </div>
@@ -952,8 +1096,6 @@ if page == "Dashboard":
             """,
             unsafe_allow_html=True,
         )
-    if orders_paid >= LOADING_ORDERS_TARGET_TRUCKS:
-        st.success(f"Loading orders complete ({LOADING_ORDERS_TARGET_TRUCKS}/{LOADING_ORDERS_TARGET_TRUCKS}).")
     st.markdown("<div class='card-row-gap'></div>", unsafe_allow_html=True)
     lo_alloc_cols = st.columns(2)
     with lo_alloc_cols[0]:
@@ -997,8 +1139,11 @@ if page == "Dashboard":
         daily_agg["daily_mt"] = daily_agg["trucks_picked"] * TRUCK_CAPACITY_MT
         daily_agg["cumulative_mt"] = daily_agg["daily_mt"].cumsum()
         
-        latest_cumulative = daily_agg['cumulative_mt'].iloc[-1]
-        target_by_asof = (allocation_mt / finish_by_day) * (as_of_date - month_start).days
+        latest_cumulative = daily_agg["cumulative_mt"].iloc[-1]
+        plan_days = max(1, (finish_by_date - month_start).days + 1)
+        elapsed_days = (as_of_date - month_start).days + 1
+        elapsed_days = min(max(1, elapsed_days), plan_days)
+        target_by_asof = allocation_mt * (elapsed_days / plan_days)
         variance = latest_cumulative - target_by_asof
         
         needed_per_day = remaining / max(days_left, 1)
@@ -1062,7 +1207,7 @@ if page == "Dashboard":
         daily_agg["cumulative_mt"] = daily_agg["daily_mt"].cumsum()
         daily_agg["pickup_date"] = pd.to_datetime(daily_agg["pickup_date"])
         
-        month_end = date(selected_year, selected_month, min(finish_by_day, 28))
+        month_end = finish_by_date
         
         # Create target trajectory
         target_dates = pd.date_range(month_start, month_end)
@@ -1637,7 +1782,9 @@ elif page == "Daily Planner":
                         st.rerun()
 
 elif page == "Monthly Data":
-    st.title("Monthly Data")
+    st.markdown("<div style='margin-top:1.4rem;'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Monthly Data</div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-top:3.8rem;'></div>", unsafe_allow_html=True)
     month_opts_df = read_df(
         """
         SELECT DISTINCT month_key FROM monthly_plan
@@ -1650,7 +1797,16 @@ elif page == "Monthly Data":
     month_options = month_opts_df["month_key"].tolist() if len(month_opts_df) else [mkey]
     month_options = month_options or [mkey]
 
-    md_cols = st.columns(2)
+    st.markdown(
+        """
+        <div class="filters-header">
+            <span>Filters</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='margin-bottom:0.6rem;'></div>", unsafe_allow_html=True)
+    md_cols = st.columns([2, 1])
     with md_cols[0]:
         md_mkey = st.selectbox("Month", month_options, index=0, key="md_month")
     with md_cols[1]:
@@ -1724,7 +1880,33 @@ elif page == "Monthly Data":
     if len(md_pickups):
         daily_view = md_pickups.copy()
         daily_view["mt"] = daily_view["trucks_picked"] * TRUCK_CAPACITY_MT
-        st.dataframe(daily_view, use_container_width=True, hide_index=True)
+
+        daily_chart = (
+            daily_view.groupby("pickup_date")["mt"]
+            .sum()
+            .reset_index()
+        )
+        daily_chart["pickup_date"] = pd.to_datetime(daily_chart["pickup_date"])
+        fig_md = px.bar(
+            daily_chart,
+            x="pickup_date",
+            y="mt",
+            labels={"pickup_date": "Date", "mt": "MT"},
+            title="Daily MT Picked",
+        )
+        fig_md.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0.1)",
+            margin=dict(l=30, r=20, b=40, t=50),
+            height=320,
+            xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.08)"),
+            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.08)"),
+            title=dict(font=dict(size=14, color="#d9c7ff")),
+        )
+        st.plotly_chart(fig_md, width="stretch", config={"displayModeBar": False})
+
+        st.dataframe(daily_view, width="stretch", hide_index=True)
     else:
         st.info("No pickup data logged for this selection.")
 
@@ -1819,3 +2001,5 @@ elif page == "Settings":
         if os.path.exists(DB_PATH):
             os.remove(DB_PATH)
             st.success("✅ Database cleared! Refresh the page to start fresh.")
+
+render_footer_logo(FOOTER_LOGO_MARK_PATH, width=90)
