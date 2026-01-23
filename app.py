@@ -176,7 +176,7 @@ CUSTOM_CSS = """
         position: relative;
     }
     .metric-title {
-        font-size: 12px;
+        font-size: 13px;
         color: #f2e7ff;
         margin: 0;
         text-align: center;
@@ -218,7 +218,7 @@ CUSTOM_CSS = """
         text-align: center;
     }
     .metric-block-label {
-        font-size: 11px;
+        font-size: 12px;
         color: #cdb8ff;
     }
     .metric-block-value {
@@ -386,6 +386,27 @@ CUSTOM_CSS = """
         vertical-align: middle;
         transform: translateY(-1px);
     }
+    [data-testid="stDataFrame"] {
+        border: 1px solid rgba(180, 140, 220, 0.28);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 18px 40px rgba(13, 10, 22, 0.45);
+    }
+    [data-testid="stDataFrame"] thead tr th {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.7rem;
+        color: #e6d6ff;
+        background: rgba(40, 30, 60, 0.65);
+    }
+    [data-testid="stDataFrame"] tbody tr td {
+        font-size: 0.9rem;
+        color: #f1e9ff;
+    }
+    [data-testid="stDataFrame"] th,
+    [data-testid="stDataFrame"] td {
+        padding: 0.5rem 0.75rem !important;
+    }
     .stRadio [role="radiogroup"] {
         margin-top: 0.6rem;
         gap: 0.25rem;
@@ -448,6 +469,14 @@ CUSTOM_CSS = """
     }
     .sim-footer-card {
         margin-bottom: 0.6rem;
+    }
+    .footer-logo-wrap {
+        margin: 0.6rem 0 0.15rem 0;
+        display: flex;
+        justify-content: center;
+    }
+    .footer-logo-mark {
+        filter: drop-shadow(0 0 10px rgba(214, 170, 255, 0.55));
     }
     .mini-info {
         position: absolute;
@@ -712,7 +741,7 @@ migrate_db()
 today = date.today()
 current_mkey = month_key_for(today)
 SIDEBAR_LOGO_PATH = "assets/cart-full-logo-white.png"
-FOOTER_LOGO_MARK_PATH = "/Users/chris/Downloads/CART Logo Mark (White).png"
+FOOTER_LOGO_MARK_PATH = "assets/cart-logo-mark-white.png"
 
 def load_logo_image(path: str, width: int | None = None):
     try:
@@ -734,8 +763,8 @@ def render_footer_logo(path: str, width: int = 90):
     encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
     st.markdown(
         f"""
-        <div style="margin: 0.8rem 0 0.2rem 0; display: flex; justify-content: center;">
-            <img src="data:image/png;base64,{encoded}" style="width: {width}px; height: auto;" />
+        <div class="footer-logo-wrap">
+            <img src="data:image/png;base64,{encoded}" class="footer-logo-mark" style="width: {width}px; height: auto;" />
         </div>
         """,
         unsafe_allow_html=True,
@@ -1218,13 +1247,32 @@ if page == "Dashboard":
         # Split actual progress into completed and projected
         completed_data = daily_agg[daily_agg['pickup_date'] <= pd.to_datetime(as_of_date)]
         if len(completed_data) > 0:
-            # Completed portion - bright cyan
+            # Completed glow
+            fig.add_trace(go.Scatter(
+                x=completed_data['pickup_date'], y=completed_data['cumulative_mt'],
+                mode='lines',
+                name='Completed Progress',
+                line=dict(color='rgba(214, 170, 255, 0.25)', width=10),
+                hoverinfo='skip',
+                showlegend=False
+            ))
+            # Completed area
+            fig.add_trace(go.Scatter(
+                x=completed_data['pickup_date'], y=completed_data['cumulative_mt'],
+                mode='lines',
+                line=dict(color='rgba(214, 170, 255, 0.0)', width=0),
+                fill='tozeroy',
+                fillcolor='rgba(214, 170, 255, 0.08)',
+                hoverinfo='skip',
+                showlegend=False
+            ))
+            # Completed main line
             fig.add_trace(go.Scatter(
                 x=completed_data['pickup_date'], y=completed_data['cumulative_mt'],
                 mode='lines+markers',
                 name='Completed Progress',
-                line=dict(color='#00d4ff', width=5),
-                marker=dict(size=10, color='#00d4ff', line=dict(width=3, color='white')),
+                line=dict(color='#d6aaff', width=4),
+                marker=dict(size=9, color='#d6aaff', line=dict(width=2, color='#f7ecff')),
                 hovertemplate='%{y:,.0f} MT'
             ))
         
@@ -1235,8 +1283,8 @@ if page == "Dashboard":
                 x=projected_data['pickup_date'], y=projected_data['cumulative_mt'],
                 mode='lines+markers',
                 name='Projected Progress',
-                line=dict(color='rgba(0, 212, 255, 0.4)', width=5, dash='dash'),
-                marker=dict(size=8, color='rgba(0, 212, 255, 0.4)', line=dict(width=2, color='rgba(255,255,255,0.3)')),
+                line=dict(color='rgba(182, 140, 255, 0.55)', width=3, dash='dash'),
+                marker=dict(size=7, color='rgba(182, 140, 255, 0.55)', line=dict(width=1.5, color='rgba(247,236,255,0.5)')),
                 hovertemplate='%{y:,.0f} MT'
             ))
         
@@ -1245,7 +1293,7 @@ if page == "Dashboard":
             x=target_dates, y=target_values,
             mode='lines',
             name='Target Trajectory',
-            line=dict(color='#00ff9d', width=4, dash='dot'),
+            line=dict(color='rgba(95, 242, 197, 0.9)', width=3, dash='dot'),
             hovertemplate='%{y:,.0f} MT'
         ))
         
@@ -1256,7 +1304,7 @@ if page == "Dashboard":
             x0=pd.to_datetime(as_of_date), x1=pd.to_datetime(as_of_date),
             y0=0, y1=1,
             yref="paper",
-            line=dict(color='#ff2e63', width=4, dash='dash'),
+            line=dict(color='rgba(255, 77, 210, 0.9)', width=3, dash='dash'),
         )
         fig.add_annotation(
             x=pd.to_datetime(as_of_date),
@@ -1264,27 +1312,27 @@ if page == "Dashboard":
             yref="paper",
             text=marker_label,
             showarrow=False,
-            font=dict(size=14, color='#ff2e63'),
+            font=dict(size=12, color='rgba(255, 77, 210, 0.9)'),
             yshift=10
         )
         
         fig.update_layout(
             template='plotly_dark',
             paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0.1)',
+            plot_bgcolor='rgba(10, 6, 18, 0.45)',
             margin=dict(l=30, r=20, b=100, t=40),
             height=440,
             hovermode='x unified',
             dragmode=False,
             xaxis=dict(
                 showgrid=True,
-                gridcolor='rgba(255,255,255,0.08)',
+                gridcolor='rgba(255,255,255,0.06)',
                 title='Date',
                 automargin=True
             ),
             yaxis=dict(
                 title=dict(text='Cumulative MT', font=dict(size=13)),
-                gridcolor='rgba(255,255,255,0.08)',
+                gridcolor='rgba(255,255,255,0.06)',
                 automargin=True
             ),
             title_text="",
@@ -1879,20 +1927,44 @@ elif page == "Monthly Data":
     st.subheader("Daily Pickups")
     if len(md_pickups):
         daily_view = md_pickups.copy()
-        daily_view["mt"] = daily_view["trucks_picked"] * TRUCK_CAPACITY_MT
+        daily_view["MT"] = daily_view["trucks_picked"] * TRUCK_CAPACITY_MT
+        daily_view = daily_view.rename(
+            columns={
+                "pickup_date": "Date",
+                "transporter_name": "Transporter",
+                "trucks_picked": "Trucks",
+            }
+        )
+        daily_view["Date"] = pd.to_datetime(daily_view["Date"]).dt.strftime("%d %b %Y")
+        daily_view = daily_view[["Date", "Transporter", "Trucks", "MT"]]
 
         daily_chart = (
-            daily_view.groupby("pickup_date")["mt"]
+            md_pickups.groupby("pickup_date")["trucks_picked"]
             .sum()
             .reset_index()
         )
         daily_chart["pickup_date"] = pd.to_datetime(daily_chart["pickup_date"])
-        fig_md = px.bar(
-            daily_chart,
-            x="pickup_date",
-            y="mt",
-            labels={"pickup_date": "Date", "mt": "MT"},
-            title="Daily MT Picked",
+        fig_md = go.Figure()
+        for _, row in daily_chart.iterrows():
+            fig_md.add_trace(
+                go.Scatter(
+                    x=[row["pickup_date"], row["pickup_date"]],
+                    y=[0, row["trucks_picked"]],
+                    mode="lines",
+                    line=dict(color="rgba(210, 170, 255, 0.55)", width=3),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+        fig_md.add_trace(
+            go.Scatter(
+                x=daily_chart["pickup_date"],
+                y=daily_chart["trucks_picked"],
+                mode="markers",
+                marker=dict(size=12, color="#d6aaff", line=dict(width=1, color="#f5e7ff")),
+                name="Trucks",
+                hovertemplate="%{y} trucks<br>%{x|%b %d, %Y}<extra></extra>",
+            )
         )
         fig_md.update_layout(
             template="plotly_dark",
@@ -1900,13 +1972,30 @@ elif page == "Monthly Data":
             plot_bgcolor="rgba(0,0,0,0.1)",
             margin=dict(l=30, r=20, b=40, t=50),
             height=320,
+            title=dict(text="Daily Trucks Picked", font=dict(size=14, color="#d9c7ff")),
             xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.08)"),
-            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.08)"),
-            title=dict(font=dict(size=14, color="#d9c7ff")),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor="rgba(255,255,255,0.08)",
+                rangemode="tozero",
+                range=[0, 5],
+                dtick=1,
+                title="Trucks",
+            ),
         )
         st.plotly_chart(fig_md, use_container_width=True, config={"displayModeBar": False})
 
-        st.dataframe(daily_view, use_container_width=True, hide_index=True)
+        st.dataframe(
+            daily_view,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Date": st.column_config.TextColumn(),
+                "Transporter": st.column_config.TextColumn(),
+                "Trucks": st.column_config.NumberColumn(format="%d"),
+                "MT": st.column_config.NumberColumn(format="%.0f"),
+            },
+        )
     else:
         st.info("No pickup data logged for this selection.")
 
