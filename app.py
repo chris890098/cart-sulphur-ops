@@ -576,6 +576,7 @@ def migrate_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pickup_date TEXT NOT NULL,
             transporter_name TEXT NOT NULL,
+            customer_name TEXT NOT NULL,
             trucks_picked INTEGER NOT NULL,
             notes TEXT,
             created_at TEXT NOT NULL,
@@ -625,16 +626,19 @@ def migrate_db():
         )
         """)
         conn.commit()
-    
-    if not table_exists("monthly_overrides"):
+
+    if not table_exists("customer_aliases"):
         cur.execute("""
-        CREATE TABLE monthly_overrides (
+        CREATE TABLE customer_aliases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            month_key TEXT UNIQUE NOT NULL,
-            reload_assist_trucks INTEGER NOT NULL DEFAULT 0
+            month_key TEXT NOT NULL,
+            customer_name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            UNIQUE(month_key, customer_name)
         )
         """)
         conn.commit()
+    
     
     if table_exists("transporters"):
         cur.execute("""
@@ -653,12 +657,68 @@ def migrate_db():
         """, ("Reload (Trammo)", "Reload (Tram)", "Reload (Trammo)"))
         cur.execute("DELETE FROM transporters WHERE name=?", ("Poly Self Transport",))
         cur.execute("DELETE FROM transporters WHERE name=?", ("Reload (Tram)",))
+        cur.execute("INSERT OR IGNORE INTO transporters(name) VALUES(?)", ("Reload",))
+        cur.execute("INSERT OR IGNORE INTO transporters(name) VALUES(?)", ("Impala",))
         conn.commit()
     if table_exists("transporter_allocation"):
         cur.execute("UPDATE transporter_allocation SET transporter_name=? WHERE transporter_name=?", ("Polytra", "Poly Self Transport"))
         cur.execute("UPDATE transporter_allocation SET transporter_name=? WHERE transporter_name=?", ("Reload (Trammo)", "Reload (Tram)"))
+        cur.execute("""
+            UPDATE transporter_allocation
+            SET transporter_name=?
+            WHERE transporter_name=? AND NOT EXISTS (
+                SELECT 1 FROM transporter_allocation WHERE month_key=transporter_allocation.month_key AND transporter_name=?
+            )
+        """, ("Trammo", "Reload (Trammo)", "Trammo"))
         conn.commit()
     if table_exists("transporter_daily_pickups"):
+        cur.execute("PRAGMA table_info(transporter_daily_pickups)")
+        pickup_cols = [col[1] for col in cur.fetchall()]
+        has_customer = "customer_name" in pickup_cols
+        if not has_customer:
+            cur.execute("ALTER TABLE transporter_daily_pickups ADD COLUMN customer_name TEXT NOT NULL DEFAULT 'Trammo'")
+            conn.commit()
+            cur.execute(
+                "UPDATE transporter_daily_pickups SET customer_name='Polytra' WHERE transporter_name='Polytra'"
+            )
+            conn.commit()
+        cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='transporter_daily_pickups'")
+        table_sql_row = cur.fetchone()
+        table_sql = table_sql_row[0] if table_sql_row else ""
+        if "UNIQUE(pickup_date, transporter_name, customer_name)" not in table_sql:
+            cur.execute("""
+                CREATE TABLE transporter_daily_pickups_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pickup_date TEXT NOT NULL,
+                    transporter_name TEXT NOT NULL,
+                    customer_name TEXT NOT NULL,
+                    trucks_picked INTEGER NOT NULL,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(pickup_date, transporter_name, customer_name)
+                )
+            """)
+            if has_customer:
+                cur.execute("""
+                    INSERT INTO transporter_daily_pickups_new(
+                        pickup_date, transporter_name, customer_name, trucks_picked, notes, created_at
+                    )
+                    SELECT pickup_date, transporter_name, customer_name, trucks_picked, notes, created_at
+                    FROM transporter_daily_pickups
+                """)
+            else:
+                cur.execute("""
+                    INSERT INTO transporter_daily_pickups_new(
+                        pickup_date, transporter_name, customer_name, trucks_picked, notes, created_at
+                    )
+                    SELECT pickup_date, transporter_name,
+                           CASE WHEN transporter_name='Polytra' THEN 'Polytra' ELSE 'Trammo' END,
+                           trucks_picked, notes, created_at
+                    FROM transporter_daily_pickups
+                """)
+            cur.execute("DROP TABLE transporter_daily_pickups")
+            cur.execute("ALTER TABLE transporter_daily_pickups_new RENAME TO transporter_daily_pickups")
+            conn.commit()
         cur.execute("UPDATE transporter_daily_pickups SET transporter_name=? WHERE transporter_name=?", ("Polytra", "Poly Self Transport"))
         cur.execute("UPDATE transporter_daily_pickups SET transporter_name=? WHERE transporter_name=?", ("Reload (Trammo)", "Reload (Tram)"))
         conn.commit()
@@ -678,16 +738,18 @@ def init_db():
         contact_email TEXT,
         notes TEXT
     )""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS customer_aliases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        month_key TEXT NOT NULL,
+        customer_name TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        UNIQUE(month_key, customer_name)
+    )""")
     cur.execute("""CREATE TABLE IF NOT EXISTS monthly_plan (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         month_key TEXT UNIQUE NOT NULL,
         allocation_mt REAL NOT NULL,
         finish_by_day INTEGER NOT NULL
-    )""")
-    cur.execute("""CREATE TABLE IF NOT EXISTS monthly_overrides (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        month_key TEXT UNIQUE NOT NULL,
-        reload_assist_trucks INTEGER NOT NULL DEFAULT 0
     )""")
     cur.execute("""CREATE TABLE IF NOT EXISTS transporter_allocation (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -702,6 +764,8 @@ def init_db():
     cur.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", ("supplier_name", "Sasol"))
     cur.execute("INSERT OR IGNORE INTO transporters(name) VALUES(?)", ("Polytra",))
     cur.execute("INSERT OR IGNORE INTO transporters(name) VALUES(?)", ("Reload (Trammo)",))
+    cur.execute("INSERT OR IGNORE INTO transporters(name) VALUES(?)", ("Reload",))
+    cur.execute("INSERT OR IGNORE INTO transporters(name) VALUES(?)", ("Impala",))
 
     conn.commit()
     conn.close()
@@ -718,27 +782,42 @@ def previous_month_key(mkey: str) -> str:
         month -= 1
     return f"{year:04d}-{month:02d}"
 
-def get_transporter_display_map(mkey: str) -> dict[str, str]:
+def normalize_transporter_name(name: str) -> str:
+    return "Reload" if name == "Reload (Trammo)" else name
+
+def list_transporters() -> list[str]:
+    df = read_df("SELECT name FROM transporters ORDER BY name")
+    names = [normalize_transporter_name(name) for name in df["name"].tolist()] if len(df) else []
+    for fallback in ["Polytra", "Impala", "Reload"]:
+        if fallback not in names:
+            names.append(fallback)
+    seen = set()
+    unique_names = []
+    for name in names:
+        if name not in seen:
+            unique_names.append(name)
+            seen.add(name)
+    return unique_names
+
+def get_customer_display_map(mkey: str) -> dict[str, str]:
     base_map = {
         "Polytra": "Polytra",
-        "Reload (Trammo)": "Reload (Trammo)",
+        "Trammo": "Trammo",
     }
-    if mkey == "2026-02":
-        base_map["Reload (Trammo)"] = "Impala"
     alias_df = read_df(
-        "SELECT transporter_name, display_name FROM transporter_aliases WHERE month_key=?",
+        "SELECT customer_name, display_name FROM customer_aliases WHERE month_key=?",
         (mkey,),
     )
     if len(alias_df):
         for _, row in alias_df.iterrows():
             display_name = str(row["display_name"]).strip()
             if display_name:
-                base_map[row["transporter_name"]] = display_name
+                base_map[row["customer_name"]] = display_name
     return base_map
 
-def get_transporter_ui_maps(mkey: str):
-    display_map = get_transporter_display_map(mkey)
-    ordered = ["Polytra", "Reload (Trammo)"]
+def get_customer_ui_maps(mkey: str):
+    display_map = get_customer_display_map(mkey)
+    ordered = ["Polytra", "Trammo"]
     display_list = [display_map[name] for name in ordered]
     reverse_map = {display_map[name]: name for name in ordered}
     return display_list, reverse_map, display_map
@@ -762,15 +841,15 @@ def calculate_paid_carryover(mkey: str):
     prev_orders_paid_poly = int(prev_loading.iloc[0]["orders_paid_polytra"])
     prev_orders_paid_tram = int(prev_loading.iloc[0]["orders_paid_trammo"])
     prev_pickups = read_df(
-        "SELECT transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ?",
+        "SELECT transporter_name, customer_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ?",
         (f"{prev_mkey}%",),
     )
     prev_total_trucks = int(prev_pickups["trucks_picked"].sum()) if len(prev_pickups) else 0
     prev_poly_trucks = int(
-        prev_pickups[prev_pickups["transporter_name"] == "Polytra"]["trucks_picked"].sum()
+        prev_pickups[prev_pickups["customer_name"] == "Polytra"]["trucks_picked"].sum()
     ) if len(prev_pickups) else 0
     prev_tram_trucks = int(
-        prev_pickups[prev_pickups["transporter_name"] == "Reload (Trammo)"]["trucks_picked"].sum()
+        prev_pickups[prev_pickups["customer_name"] == "Trammo"]["trucks_picked"].sum()
     ) if len(prev_pickups) else 0
     carry_total = max(0, prev_orders_paid - prev_total_trucks)
     carry_poly = max(0, prev_orders_paid_poly - prev_poly_trucks)
@@ -790,7 +869,7 @@ def ensure_month_plan(mkey: str):
         cur.execute("INSERT OR IGNORE INTO transporter_allocation(month_key, transporter_name, allocation_mt) VALUES(?,?,?)",
                     (mkey, "Polytra", default_per_transporter))
         cur.execute("INSERT OR IGNORE INTO transporter_allocation(month_key, transporter_name, allocation_mt) VALUES(?,?,?)",
-                    (mkey, "Reload (Trammo)", default_per_transporter))
+                    (mkey, "Trammo", default_per_transporter))
         conn.commit()
     conn.close()
 
@@ -817,17 +896,6 @@ def ensure_loading_orders(mkey: str):
         conn.commit()
     conn.close()
 
-def ensure_month_overrides(mkey: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM monthly_overrides WHERE month_key=?", (mkey,))
-    if not cur.fetchone():
-        cur.execute(
-            "INSERT INTO monthly_overrides(month_key, reload_assist_trucks) VALUES(?,?)",
-            (mkey, 0),
-        )
-        conn.commit()
-    conn.close()
 
 def read_df(query, params=()):
     conn = get_conn()
@@ -842,14 +910,6 @@ def exec_sql(query, params=()):
     conn.commit()
     conn.close()
 
-def get_setting(key: str, default: str | None = None) -> str | None:
-    setting_df = read_df("SELECT value FROM settings WHERE key=?", (key,))
-    if len(setting_df):
-        return str(setting_df.iloc[0]["value"])
-    return default
-
-def set_setting(key: str, value: str):
-    exec_sql("INSERT OR REPLACE INTO settings(key, value) VALUES(?,?)", (key, value))
 
 init_db()
 migrate_db()
@@ -948,7 +1008,6 @@ available_months = list_month_keys()
 mkey = current_mkey
 ensure_month_plan(mkey)
 ensure_loading_orders(mkey)
-ensure_month_overrides(mkey)
 
 plan_df = read_df("SELECT allocation_mt, finish_by_day FROM monthly_plan WHERE month_key=?", (mkey,))
 allocation_mt = float(plan_df.iloc[0]["allocation_mt"]) if len(plan_df) else DEFAULT_MONTHLY_ALLOCATION_MT
@@ -983,26 +1042,22 @@ orders_paid_trammo = int(loading_orders_df.iloc[0]["orders_paid_trammo"]) if len
 orders_paid_polytra_base = int(loading_orders_df.iloc[0]["orders_paid_polytra_base"]) if len(loading_orders_df) else 0
 orders_paid_trammo_base = int(loading_orders_df.iloc[0]["orders_paid_trammo_base"]) if len(loading_orders_df) else 0
 
-override_df = read_df(
-    "SELECT reload_assist_trucks FROM monthly_overrides WHERE month_key=?",
-    (mkey,),
-)
-reload_assist_trucks = int(override_df.iloc[0]["reload_assist_trucks"]) if len(override_df) else 0
 
 carryover_total, carryover_poly, carryover_tram, carryover_src_mkey = calculate_paid_carryover(mkey)
 effective_orders_paid = orders_paid + carryover_total
 effective_orders_paid_polytra = orders_paid_polytra + carryover_poly
 effective_orders_paid_trammo = orders_paid_trammo + carryover_tram
 
-trans_display_list, trans_reverse_map, trans_display_map = get_transporter_ui_maps(mkey)
-display_poly = trans_display_map.get("Polytra", "Polytra")
-display_tram = trans_display_map.get("Reload (Trammo)", "Reload (Trammo)")
-multi_transporters_enabled = get_setting("multi_transporters_enabled", "0") == "1"
+customer_display_list, customer_reverse_map, customer_display_map = get_customer_ui_maps(mkey)
+display_poly = customer_display_map.get("Polytra", "Polytra")
+display_tram = customer_display_map.get("Trammo", "Trammo")
 
 trans_daily_pickups = read_df(
-    "SELECT pickup_date, transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
+    "SELECT pickup_date, transporter_name, customer_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
     (f"{mkey}%",)
 )
+if len(trans_daily_pickups):
+    trans_daily_pickups["transporter_display"] = trans_daily_pickups["transporter_name"].map(normalize_transporter_name)
 
 last_poly_date = "—"
 last_tram_date = "—"
@@ -1011,14 +1066,14 @@ last_tram_trucks = 0
 last_update_date = "—"
 if len(trans_daily_pickups):
     last_update_date = pd.to_datetime(trans_daily_pickups["pickup_date"]).max().strftime("%d %b")
-    poly_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Polytra"]["pickup_date"]
-    tram_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Reload (Trammo)"]["pickup_date"]
+    poly_dates = trans_daily_pickups[trans_daily_pickups["customer_name"] == "Polytra"]["pickup_date"]
+    tram_dates = trans_daily_pickups[trans_daily_pickups["customer_name"] == "Trammo"]["pickup_date"]
     if len(poly_dates):
         poly_last_date = pd.to_datetime(poly_dates).max().date()
         last_poly_date = poly_last_date.strftime("%d %b")
         last_poly_trucks = int(
             trans_daily_pickups[
-                (trans_daily_pickups["transporter_name"] == "Polytra")
+                (trans_daily_pickups["customer_name"] == "Polytra")
                 & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == poly_last_date)
             ]["trucks_picked"].sum()
         )
@@ -1027,7 +1082,7 @@ if len(trans_daily_pickups):
         last_tram_date = tram_last_date.strftime("%d %b")
         last_tram_trucks = int(
             trans_daily_pickups[
-                (trans_daily_pickups["transporter_name"] == "Reload (Trammo)")
+                (trans_daily_pickups["customer_name"] == "Trammo")
                 & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == tram_last_date)
             ]["trucks_picked"].sum()
         )
@@ -1059,11 +1114,18 @@ st.sidebar.markdown(
 total_trucks_picked = int(trans_daily_pickups["trucks_picked"].sum()) if len(trans_daily_pickups) else 0
 total_mt_picked = float(total_trucks_picked * TRUCK_CAPACITY_MT)
 
-poly_trucks = int(trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Polytra"]["trucks_picked"].sum()) if len(trans_daily_pickups) else 0
+poly_trucks = int(trans_daily_pickups[trans_daily_pickups["customer_name"] == "Polytra"]["trucks_picked"].sum()) if len(trans_daily_pickups) else 0
 poly_mt = float(poly_trucks * TRUCK_CAPACITY_MT)
 
-tram_trucks = int(trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Reload (Trammo)"]["trucks_picked"].sum()) if len(trans_daily_pickups) else 0
+tram_trucks = int(trans_daily_pickups[trans_daily_pickups["customer_name"] == "Trammo"]["trucks_picked"].sum()) if len(trans_daily_pickups) else 0
 tram_mt = float(tram_trucks * TRUCK_CAPACITY_MT)
+
+reload_assist_trucks = int(
+    trans_daily_pickups[
+        (trans_daily_pickups["customer_name"] == "Trammo")
+        & (trans_daily_pickups["transporter_display"] == "Reload")
+    ]["trucks_picked"].sum()
+) if len(trans_daily_pickups) else 0
 
 remaining = allocation_mt - total_mt_picked
 days_left = max(0, (finish_by_date - as_of_date).days)
@@ -1154,14 +1216,14 @@ if page == "Dashboard":
         last_poly_trucks = 0
         last_tram_trucks = 0
         if len(trans_daily_pickups):
-            poly_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Polytra"]["pickup_date"]
-            tram_dates = trans_daily_pickups[trans_daily_pickups["transporter_name"] == "Reload (Trammo)"]["pickup_date"]
+            poly_dates = trans_daily_pickups[trans_daily_pickups["customer_name"] == "Polytra"]["pickup_date"]
+            tram_dates = trans_daily_pickups[trans_daily_pickups["customer_name"] == "Trammo"]["pickup_date"]
             if len(poly_dates):
                 poly_last_date = pd.to_datetime(poly_dates).max().date()
                 last_poly_date = poly_last_date.strftime("%b %d")
                 last_poly_trucks = int(
                     trans_daily_pickups[
-                        (trans_daily_pickups["transporter_name"] == "Polytra")
+                        (trans_daily_pickups["customer_name"] == "Polytra")
                         & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == poly_last_date)
                     ]["trucks_picked"].sum()
                 )
@@ -1170,7 +1232,7 @@ if page == "Dashboard":
                 last_tram_date = tram_last_date.strftime("%b %d")
                 last_tram_trucks = int(
                     trans_daily_pickups[
-                        (trans_daily_pickups["transporter_name"] == "Reload (Trammo)")
+                        (trans_daily_pickups["customer_name"] == "Trammo")
                         & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == tram_last_date)
                     ]["trucks_picked"].sum()
                 )
@@ -1495,8 +1557,8 @@ if page == "Dashboard":
 
     st.divider()
 
-    # Transporter Performance - Gauge Charts
-    st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Transporter Performance</div>", unsafe_allow_html=True)
+    # Customer Performance - Gauge Charts
+    st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Customer Performance</div>", unsafe_allow_html=True)
     
     col_poly, col_tram = st.columns(2)
     
@@ -1593,7 +1655,7 @@ if page == "Dashboard":
         """, unsafe_allow_html=True)
     
     with col_tram:
-        tram_alloc = trans_alloc.get("Reload (Trammo)", allocation_mt / 2)
+        tram_alloc = trans_alloc.get("Trammo", trans_alloc.get("Reload (Trammo)", allocation_mt / 2))
         tram_pct = (tram_mt / tram_alloc * 100) if tram_alloc > 0 else 0
         tram_pct = min(tram_pct, 100)  # Cap at 100% for gauge
         
@@ -1831,10 +1893,19 @@ elif page == "Daily Planner":
     st.title("Daily Truck Pickups")
     st.caption("Track daily truck pickups per transporter from Sasol")
 
+    transporter_options = list_transporters()
+
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown(f"<div class='section-title'><span class='title-icon'>✦</span>{display_poly} Daily Pickups</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='section-title'><span class='title-icon'>✦</span>{display_poly} Customer Daily Pickups</div>", unsafe_allow_html=True)
+        poly_default_index = transporter_options.index("Polytra") if "Polytra" in transporter_options else 0
+        poly_transporter = st.selectbox(
+            "Transporter",
+            transporter_options,
+            index=poly_default_index,
+            key="poly_transporter",
+        )
         with st.expander(f"Log {display_poly} Pickups", expanded=True):
             pickup_date_poly = st.date_input("Pickup date", value=today, key="poly_date")
             trucks_poly = st.number_input("Trucks picked", min_value=0, step=1, value=1, key="poly_trucks")
@@ -1843,19 +1914,20 @@ elif page == "Daily Planner":
             
             if st.button(f"Save {display_poly} Pickups"):
                 exec_sql(
-                    "INSERT OR REPLACE INTO transporter_daily_pickups(pickup_date, transporter_name, trucks_picked, notes, created_at) VALUES(?,?,?,?,?)",
-                    (pickup_date_poly.isoformat(), "Polytra", trucks_poly, notes_poly, datetime.now().isoformat(timespec="seconds"))
+                    "INSERT OR REPLACE INTO transporter_daily_pickups(pickup_date, transporter_name, customer_name, trucks_picked, notes, created_at) VALUES(?,?,?,?,?,?)",
+                    (pickup_date_poly.isoformat(), poly_transporter, "Polytra", trucks_poly, notes_poly, datetime.now().isoformat(timespec="seconds"))
                 )
                 st.success(f"✅ {display_poly} pickups logged!")
         
-        poly_pickups = read_df("SELECT id, pickup_date, trucks_picked, notes FROM transporter_daily_pickups WHERE transporter_name='Polytra' ORDER BY pickup_date DESC LIMIT 7")
+        poly_pickups = read_df("SELECT id, pickup_date, transporter_name, trucks_picked, notes FROM transporter_daily_pickups WHERE customer_name='Polytra' ORDER BY pickup_date DESC LIMIT 7")
         if len(poly_pickups):
             st.metric("Trucks (7 days)", f"{int(poly_pickups['trucks_picked'].sum())}")
+            poly_pickups["transporter_name"] = poly_pickups["transporter_name"].map(normalize_transporter_name)
             st.dataframe(poly_pickups.drop(columns=["id"]), use_container_width=True, hide_index=True)
 
             with st.expander(f"Edit/Delete {display_poly} Entry", expanded=False):
                 poly_options = {
-                    f"{row['pickup_date']} • {int(row['trucks_picked'])} trucks": int(row["id"])
+                    f"{row['pickup_date']} • {normalize_transporter_name(row['transporter_name'])} • {int(row['trucks_picked'])} trucks": int(row["id"])
                     for _, row in poly_pickups.iterrows()
                 }
                 selected_poly_label = st.selectbox(
@@ -1903,44 +1975,42 @@ elif page == "Daily Planner":
                         st.rerun()
     
     with col2:
-        st.markdown(f"<div class='section-title'><span class='title-icon'>✦</span>{display_tram} Daily Pickups</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='section-title'><span class='title-icon'>✦</span>{display_tram} Customer Daily Pickups</div>", unsafe_allow_html=True)
+        tram_default_index = (
+            transporter_options.index("Impala")
+            if "Impala" in transporter_options
+            else transporter_options.index("Reload")
+            if "Reload" in transporter_options
+            else 0
+        )
+        tram_transporter = st.selectbox(
+            "Transporter",
+            transporter_options,
+            index=tram_default_index,
+            key="tram_transporter",
+        )
         with st.expander(f"Log {display_tram} Pickups", expanded=True):
             pickup_date_tram = st.date_input("Pickup date", value=today, key="tram_date")
             trucks_tram = st.number_input("Trucks picked", min_value=0, step=1, value=1, key="tram_trucks")
             st.metric(f"Total MT ({TRUCK_CAPACITY_MT} MT/truck)", f"{trucks_tram * TRUCK_CAPACITY_MT:,.0f}")
-            handled_by = display_tram
-            if multi_transporters_enabled:
-                handled_by = st.selectbox(
-                    "Handled by",
-                    [display_tram, "Reload"],
-                    index=0,
-                    key="tram_handled_by",
-                )
             notes_tram = st.text_area("Notes", key="tram_notes")
             
             if st.button(f"Save {display_tram} Pickups"):
-                final_notes = notes_tram
-                if multi_transporters_enabled and handled_by != display_tram:
-                    handled_tag = "Handled by Reload"
-                    if handled_tag not in final_notes:
-                        if final_notes.strip():
-                            final_notes = f"{final_notes.strip()} | {handled_tag}"
-                        else:
-                            final_notes = handled_tag
                 exec_sql(
-                    "INSERT OR REPLACE INTO transporter_daily_pickups(pickup_date, transporter_name, trucks_picked, notes, created_at) VALUES(?,?,?,?,?)",
-                    (pickup_date_tram.isoformat(), "Reload (Trammo)", trucks_tram, final_notes, datetime.now().isoformat(timespec="seconds"))
+                    "INSERT OR REPLACE INTO transporter_daily_pickups(pickup_date, transporter_name, customer_name, trucks_picked, notes, created_at) VALUES(?,?,?,?,?,?)",
+                    (pickup_date_tram.isoformat(), tram_transporter, "Trammo", trucks_tram, notes_tram, datetime.now().isoformat(timespec="seconds"))
                 )
                 st.success(f"✅ {display_tram} pickups logged!")
         
-        tram_pickups = read_df("SELECT id, pickup_date, trucks_picked, notes FROM transporter_daily_pickups WHERE transporter_name='Reload (Trammo)' ORDER BY pickup_date DESC LIMIT 7")
+        tram_pickups = read_df("SELECT id, pickup_date, transporter_name, trucks_picked, notes FROM transporter_daily_pickups WHERE customer_name='Trammo' ORDER BY pickup_date DESC LIMIT 7")
         if len(tram_pickups):
             st.metric("Trucks (7 days)", f"{int(tram_pickups['trucks_picked'].sum())}")
+            tram_pickups["transporter_name"] = tram_pickups["transporter_name"].map(normalize_transporter_name)
             st.dataframe(tram_pickups.drop(columns=["id"]), use_container_width=True, hide_index=True)
 
             with st.expander(f"Edit/Delete {display_tram} Entry", expanded=False):
                 tram_options = {
-                    f"{row['pickup_date']} • {int(row['trucks_picked'])} trucks": int(row["id"])
+                    f"{row['pickup_date']} • {normalize_transporter_name(row['transporter_name'])} • {int(row['trucks_picked'])} trucks": int(row["id"])
                     for _, row in tram_pickups.iterrows()
                 }
                 selected_tram_label = st.selectbox(
@@ -2016,9 +2086,9 @@ elif page == "Monthly Data":
     with md_cols[0]:
         md_mkey = st.selectbox("Month", month_options, index=0, key="md_month")
     with md_cols[1]:
-        md_display_list, md_reverse_map, md_display_map = get_transporter_ui_maps(md_mkey)
-        transporter_options = ["All"] + md_display_list
-        md_transporter_display = st.selectbox("Transporter", transporter_options, index=0, key="md_transporter")
+        md_display_list, md_reverse_map, md_display_map = get_customer_ui_maps(md_mkey)
+        customer_options = ["All"] + md_display_list
+        md_customer_display = st.selectbox("Customer", customer_options, index=0, key="md_customer")
 
     md_plan_df = read_df("SELECT allocation_mt FROM monthly_plan WHERE month_key=?", (md_mkey,))
     md_allocation_mt = float(md_plan_df.iloc[0]["allocation_mt"]) if len(md_plan_df) else DEFAULT_MONTHLY_ALLOCATION_MT
@@ -2028,12 +2098,12 @@ elif page == "Monthly Data":
     st.caption(f"Summary — {md_month_label} • Target: {md_allocation_mt:,.0f} MT")
 
     md_pickups = read_df(
-        "SELECT pickup_date, transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
+        "SELECT pickup_date, transporter_name, customer_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
         (f"{md_mkey}%",),
     )
-    if md_transporter_display != "All":
-        md_transporter = md_reverse_map.get(md_transporter_display, md_transporter_display)
-        md_pickups = md_pickups[md_pickups["transporter_name"] == md_transporter].copy()
+    if md_customer_display != "All":
+        md_customer = md_reverse_map.get(md_customer_display, md_customer_display)
+        md_pickups = md_pickups[md_pickups["customer_name"] == md_customer].copy()
 
     md_total_trucks = int(md_pickups["trucks_picked"].sum()) if len(md_pickups) else 0
     md_total_mt = float(md_total_trucks * TRUCK_CAPACITY_MT)
@@ -2086,23 +2156,21 @@ elif page == "Monthly Data":
     st.divider()
     st.subheader("Daily Pickups")
     if len(md_pickups):
+        md_pickups["transporter_display"] = md_pickups["transporter_name"].map(normalize_transporter_name)
         daily_view = md_pickups.copy()
         daily_view["MT"] = daily_view["trucks_picked"] * TRUCK_CAPACITY_MT
         daily_view = daily_view.rename(
             columns={
                 "pickup_date": "Date",
-                "transporter_name": "Transporter",
+                "transporter_display": "Transporter",
                 "trucks_picked": "Trucks",
             }
-        )
-        daily_view["Transporter"] = daily_view["Transporter"].map(
-            lambda name: md_display_map.get(name, name)
         )
         daily_view["Date"] = pd.to_datetime(daily_view["Date"]).dt.strftime("%d %b %Y")
         daily_view = daily_view[["Date", "Transporter", "Trucks", "MT"]]
 
         daily_chart = (
-            md_pickups.groupby(["pickup_date", "transporter_name"])["trucks_picked"]
+            md_pickups.groupby(["pickup_date", "transporter_display"])["trucks_picked"]
             .sum()
             .reset_index()
         )
@@ -2110,14 +2178,16 @@ elif page == "Monthly Data":
         fig_md = go.Figure()
         color_map = {
             "Polytra": "#2f80ff",
-            "Reload (Trammo)": "#ff9f1a",
+            "Reload": "#ff9f1a",
+            "Impala": "#2fd4b6",
         }
         line_map = {
             "Polytra": "rgba(47, 128, 255, 0.55)",
-            "Reload (Trammo)": "rgba(255, 159, 26, 0.55)",
+            "Reload": "rgba(255, 159, 26, 0.55)",
+            "Impala": "rgba(47, 212, 182, 0.55)",
         }
-        for transporter_name in daily_chart["transporter_name"].unique():
-            t_data = daily_chart[daily_chart["transporter_name"] == transporter_name]
+        for transporter_name in daily_chart["transporter_display"].unique():
+            t_data = daily_chart[daily_chart["transporter_display"] == transporter_name]
             for _, row in t_data.iterrows():
                 fig_md.add_trace(
                     go.Scatter(
@@ -2139,7 +2209,7 @@ elif page == "Monthly Data":
                         color=color_map.get(transporter_name, "#d6aaff"),
                         line=dict(width=1, color="#f5e7ff"),
                     ),
-                    name=md_display_map.get(transporter_name, transporter_name),
+                    name=transporter_name,
                     hovertemplate="%{y} trucks<br>%{x|%b %d, %Y}<extra></extra>",
                 )
             )
@@ -2192,11 +2262,11 @@ elif page == "Settings":
         st.success("✅ Targets saved!")
     
     st.divider()
-    st.subheader("Transporter Allocations")
+    st.subheader("Customer Allocations")
     
     col_poly, col_tram = st.columns(2)
     poly_alloc = trans_alloc.get("Polytra", allocation_mt / 2)
-    tram_alloc = trans_alloc.get("Reload (Trammo)", allocation_mt / 2)
+    tram_alloc = trans_alloc.get("Trammo", trans_alloc.get("Reload (Trammo)", allocation_mt / 2))
     
     with col_poly:
         new_poly = st.number_input(f"{display_poly} allocation (MT)", min_value=0.0, step=50.0, value=float(poly_alloc), key="poly_alloc")
@@ -2204,22 +2274,10 @@ elif page == "Settings":
         new_tram = st.number_input(f"{display_tram} allocation (MT)", min_value=0.0, step=50.0, value=float(tram_alloc), key="tram_alloc")
     
     if st.button("Save Allocations"):
-        exec_sql("UPDATE transporter_allocation SET allocation_mt=? WHERE month_key=? AND transporter_name=?", (new_poly, mkey, "Polytra"))
-        exec_sql("UPDATE transporter_allocation SET allocation_mt=? WHERE month_key=? AND transporter_name=?", (new_tram, mkey, "Reload (Trammo)"))
+        exec_sql("INSERT OR REPLACE INTO transporter_allocation(month_key, transporter_name, allocation_mt) VALUES(?,?,?)", (mkey, "Polytra", new_poly))
+        exec_sql("INSERT OR REPLACE INTO transporter_allocation(month_key, transporter_name, allocation_mt) VALUES(?,?,?)", (mkey, "Trammo", new_tram))
         st.success("✅ Allocations saved!")
 
-    st.divider()
-    st.subheader("Customer Transporters")
-    multi_toggle = st.toggle(
-        "Allow multiple transporters per customer",
-        value=multi_transporters_enabled,
-    )
-    if st.button("Save Customer Transporter Setting"):
-        set_setting("multi_transporters_enabled", "1" if multi_toggle else "0")
-        st.success("✅ Customer transporter setting saved!")
-        st.rerun()
-
-    st.divider()
     st.subheader("Loading Orders")
     st.caption("Paid orders carry over automatically from the prior month. Enter only new paid orders for this month.")
     lo_col1, lo_col2, lo_col3 = st.columns(3)
@@ -2244,7 +2302,7 @@ elif page == "Settings":
         total_allocated = new_orders_paid_poly + new_orders_paid_tram
         if total_allocated != new_orders_paid:
             st.error(
-                f"Allocate all paid orders to a transporter. Assigned {total_allocated} of {new_orders_paid}."
+                f"Allocate all paid orders to a customer. Assigned {total_allocated} of {new_orders_paid}."
             )
         else:
             exec_sql(
@@ -2272,41 +2330,23 @@ elif page == "Settings":
             st.success("✅ Loading orders saved!")
             st.rerun()
 
-    st.divider()
-    st.subheader("Monthly Notes")
-    st.caption("Use this to record occasional non-standard handling without changing performance totals.")
-    reload_assist_input = st.number_input(
-        "Reload assist trucks (this month)",
-        min_value=0,
-        step=1,
-        value=int(reload_assist_trucks),
-    )
-    if st.button("Save Monthly Notes"):
-        exec_sql(
-            "UPDATE monthly_overrides SET reload_assist_trucks=? WHERE month_key=?",
-            (reload_assist_input, mkey),
-        )
-        st.success("✅ Monthly notes saved!")
-        st.rerun()
-
-    st.divider()
-    st.subheader("Transporter Names (Monthly)")
-    st.caption("Update display names per month without changing stored pickup data.")
+    st.subheader("Customer Names (Monthly)")
+    st.caption("Update customer display names per month without changing stored pickup data.")
     name_col1, name_col2 = st.columns(2)
     with name_col1:
-        new_poly_display = st.text_input("Display name for Polytra", value=display_poly)
+        new_poly_display = st.text_input("Display name for Polytra customer", value=display_poly)
     with name_col2:
-        new_tram_display = st.text_input("Display name for Trammo transporter", value=display_tram)
-    if st.button("Save Transporter Names"):
+        new_tram_display = st.text_input("Display name for Trammo customer", value=display_tram)
+    if st.button("Save Customer Names"):
         exec_sql(
-            "INSERT OR REPLACE INTO transporter_aliases(month_key, transporter_name, display_name) VALUES(?,?,?)",
+            "INSERT OR REPLACE INTO customer_aliases(month_key, customer_name, display_name) VALUES(?,?,?)",
             (mkey, "Polytra", new_poly_display.strip() or "Polytra"),
         )
         exec_sql(
-            "INSERT OR REPLACE INTO transporter_aliases(month_key, transporter_name, display_name) VALUES(?,?,?)",
-            (mkey, "Reload (Trammo)", new_tram_display.strip() or "Reload (Trammo)"),
+            "INSERT OR REPLACE INTO customer_aliases(month_key, customer_name, display_name) VALUES(?,?,?)",
+            (mkey, "Trammo", new_tram_display.strip() or "Trammo"),
         )
-        st.success("✅ Transporter names saved!")
+        st.success("✅ Customer names saved!")
         st.rerun()
 
     st.divider()
