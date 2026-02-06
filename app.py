@@ -614,6 +614,18 @@ def migrate_db():
             cur.execute("ALTER TABLE loading_orders ADD COLUMN orders_paid_trammo_base INTEGER NOT NULL DEFAULT 0")
             conn.commit()
     
+    if not table_exists("transporter_aliases"):
+        cur.execute("""
+        CREATE TABLE transporter_aliases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_key TEXT NOT NULL,
+            transporter_name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            UNIQUE(month_key, transporter_name)
+        )
+        """)
+        conn.commit()
+    
     if table_exists("transporters"):
         cur.execute("""
             UPDATE transporters
@@ -681,6 +693,74 @@ def init_db():
 
 def month_key_for(d: date) -> str:
     return f"{d.year:04d}-{d.month:02d}"
+
+def previous_month_key(mkey: str) -> str:
+    year, month = [int(part) for part in mkey.split("-")]
+    if month == 1:
+        year -= 1
+        month = 12
+    else:
+        month -= 1
+    return f"{year:04d}-{month:02d}"
+
+def get_transporter_display_map(mkey: str) -> dict[str, str]:
+    base_map = {
+        "Polytra": "Polytra",
+        "Reload (Trammo)": "Reload (Trammo)",
+    }
+    if mkey == "2026-02":
+        base_map["Reload (Trammo)"] = "Impala"
+    alias_df = read_df(
+        "SELECT transporter_name, display_name FROM transporter_aliases WHERE month_key=?",
+        (mkey,),
+    )
+    if len(alias_df):
+        for _, row in alias_df.iterrows():
+            display_name = str(row["display_name"]).strip()
+            if display_name:
+                base_map[row["transporter_name"]] = display_name
+    return base_map
+
+def get_transporter_ui_maps(mkey: str):
+    display_map = get_transporter_display_map(mkey)
+    ordered = ["Polytra", "Reload (Trammo)"]
+    display_list = [display_map[name] for name in ordered]
+    reverse_map = {display_map[name]: name for name in ordered}
+    return display_list, reverse_map, display_map
+
+def calculate_paid_carryover(mkey: str):
+    prev_mkey = previous_month_key(mkey)
+    prev_loading = read_df(
+        """
+        SELECT
+            orders_paid,
+            orders_paid_polytra,
+            orders_paid_trammo
+        FROM loading_orders
+        WHERE month_key=?
+        """,
+        (prev_mkey,),
+    )
+    if not len(prev_loading):
+        return 0, 0, 0, prev_mkey
+    prev_orders_paid = int(prev_loading.iloc[0]["orders_paid"])
+    prev_orders_paid_poly = int(prev_loading.iloc[0]["orders_paid_polytra"])
+    prev_orders_paid_tram = int(prev_loading.iloc[0]["orders_paid_trammo"])
+    prev_pickups = read_df(
+        "SELECT transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ?",
+        (f"{prev_mkey}%",),
+    )
+    prev_total_trucks = int(prev_pickups["trucks_picked"].sum()) if len(prev_pickups) else 0
+    prev_poly_trucks = int(
+        prev_pickups[prev_pickups["transporter_name"] == "Polytra"]["trucks_picked"].sum()
+    ) if len(prev_pickups) else 0
+    prev_tram_trucks = int(
+        prev_pickups[prev_pickups["transporter_name"] == "Reload (Trammo)"]["trucks_picked"].sum()
+    ) if len(prev_pickups) else 0
+    carry_total = max(0, prev_orders_paid - prev_total_trucks)
+    carry_poly = max(0, prev_orders_paid_poly - prev_poly_trucks)
+    carry_tram = max(0, prev_orders_paid_tram - prev_tram_trucks)
+    return carry_total, carry_poly, carry_tram, prev_mkey
 
 def ensure_month_plan(mkey: str):
     conn = get_conn()
@@ -866,6 +946,15 @@ orders_paid_trammo = int(loading_orders_df.iloc[0]["orders_paid_trammo"]) if len
 orders_paid_polytra_base = int(loading_orders_df.iloc[0]["orders_paid_polytra_base"]) if len(loading_orders_df) else 0
 orders_paid_trammo_base = int(loading_orders_df.iloc[0]["orders_paid_trammo_base"]) if len(loading_orders_df) else 0
 
+carryover_total, carryover_poly, carryover_tram, carryover_src_mkey = calculate_paid_carryover(mkey)
+effective_orders_paid = orders_paid + carryover_total
+effective_orders_paid_polytra = orders_paid_polytra + carryover_poly
+effective_orders_paid_trammo = orders_paid_trammo + carryover_tram
+
+trans_display_list, trans_reverse_map, trans_display_map = get_transporter_ui_maps(mkey)
+display_poly = trans_display_map.get("Polytra", "Polytra")
+display_tram = trans_display_map.get("Reload (Trammo)", "Reload (Trammo)")
+
 trans_daily_pickups = read_df(
     "SELECT pickup_date, transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
     (f"{mkey}%",)
@@ -908,12 +997,12 @@ st.sidebar.markdown(
         </div>
         <div class="sidebar-mini-row">
             <div class="sidebar-mini-info">
-                <span class="mini-label">Polytra</span><br>
+                <span class="mini-label">{display_poly}</span><br>
                 <span class="mini-date">{last_poly_date}</span><br>
                 <span class="mini-trucks">{last_poly_trucks} trucks</span>
             </div>
             <div class="sidebar-mini-info">
-                <span class="mini-label">Reload</span><br>
+                <span class="mini-label">{display_tram}</span><br>
                 <span class="mini-date">{last_tram_date}</span><br>
                 <span class="mini-trucks">{last_tram_trucks} trucks</span>
             </div>
@@ -1072,12 +1161,12 @@ if page == "Dashboard":
     st.markdown("<div class='section-block'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Loading Orders</div>", unsafe_allow_html=True)
     st.markdown("<div class='section-content'>", unsafe_allow_html=True)
-    paid_trucks_covered = orders_paid
+    paid_trucks_covered = effective_orders_paid
     paid_mt_covered = paid_trucks_covered * TRUCK_CAPACITY_MT
-    paid_remaining = max(0, orders_paid - total_trucks_picked)
-    poly_paid_remaining = max(0, orders_paid_polytra - poly_trucks)
-    tram_paid_remaining = max(0, orders_paid_trammo - tram_trucks)
-    orders_paid_capped = min(orders_paid, LOADING_ORDERS_TARGET_TRUCKS)
+    paid_remaining = max(0, effective_orders_paid - total_trucks_picked)
+    poly_paid_remaining = max(0, effective_orders_paid_polytra - poly_trucks)
+    tram_paid_remaining = max(0, effective_orders_paid_trammo - tram_trucks)
+    orders_paid_capped = min(effective_orders_paid, LOADING_ORDERS_TARGET_TRUCKS)
     remaining_orders = max(0, LOADING_ORDERS_TARGET_TRUCKS - orders_paid_capped)
 
     lo_cols = st.columns(3)
@@ -1131,7 +1220,7 @@ if page == "Dashboard":
         st.markdown(
             f"""
             <div class="metric-card compact">
-                <p class="metric-title">Polytra Paid Remaining</p>
+                <p class="metric-title">{display_poly} Paid Remaining</p>
                 <div class="metric-blocks single">
                     <div class="metric-block">
                         <span class="metric-block-value">{poly_paid_remaining}</span>
@@ -1145,7 +1234,7 @@ if page == "Dashboard":
         st.markdown(
             f"""
             <div class="metric-card compact">
-                <p class="metric-title">Reload (Trammo) Paid Remaining</p>
+                <p class="metric-title">{display_tram} Paid Remaining</p>
                 <div class="metric-blocks single">
                     <div class="metric-block">
                         <span class="metric-block-value">{tram_paid_remaining}</span>
@@ -1156,6 +1245,13 @@ if page == "Dashboard":
             unsafe_allow_html=True,
         )
     st.markdown("</div>", unsafe_allow_html=True)
+    if carryover_total > 0:
+        carryover_year, carryover_month = [int(part) for part in carryover_src_mkey.split("-")]
+        carryover_label = date(carryover_year, carryover_month, 1).strftime("%B %Y")
+        st.caption(
+            f"Includes {carryover_total} carryover paid orders from {carryover_label} "
+            f"({display_poly}: {carryover_poly}, {display_tram}: {carryover_tram})."
+        )
     st.markdown("<hr class='section-divider' />", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1372,7 +1468,7 @@ if page == "Dashboard":
         fig_poly = go.Figure(go.Indicator(
             mode="gauge",
             value=poly_pct,
-            title=dict(text="Polytra", font=dict(size=20, color='#9fb1ca')),
+            title=dict(text=display_poly, font=dict(size=20, color='#9fb1ca')),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#2f80ff'),
                 bar=dict(color='#2f80ff', thickness=0.75),
@@ -1464,7 +1560,7 @@ if page == "Dashboard":
         fig_tram = go.Figure(go.Indicator(
             mode="gauge",
             value=tram_pct,
-            title=dict(text="Reload (Trammo)", font=dict(size=20, color='#9fb1ca')),
+            title=dict(text=display_tram, font=dict(size=20, color='#9fb1ca')),
             gauge=dict(
                 axis=dict(range=[0, 100], tickcolor='#ff9f1a'),
                 bar=dict(color='#ff9f1a', thickness=0.75),
@@ -1692,26 +1788,26 @@ elif page == "Daily Planner":
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Polytra Daily Pickups</div>", unsafe_allow_html=True)
-        with st.expander("Log Polytra Pickups", expanded=True):
+        st.markdown(f"<div class='section-title'><span class='title-icon'>✦</span>{display_poly} Daily Pickups</div>", unsafe_allow_html=True)
+        with st.expander(f"Log {display_poly} Pickups", expanded=True):
             pickup_date_poly = st.date_input("Pickup date", value=today, key="poly_date")
             trucks_poly = st.number_input("Trucks picked", min_value=0, step=1, value=1, key="poly_trucks")
             st.metric(f"Total MT ({TRUCK_CAPACITY_MT} MT/truck)", f"{trucks_poly * TRUCK_CAPACITY_MT:,.0f}")
             notes_poly = st.text_area("Notes", key="poly_notes")
             
-            if st.button("Save Polytra Pickups"):
+            if st.button(f"Save {display_poly} Pickups"):
                 exec_sql(
                     "INSERT OR REPLACE INTO transporter_daily_pickups(pickup_date, transporter_name, trucks_picked, notes, created_at) VALUES(?,?,?,?,?)",
                     (pickup_date_poly.isoformat(), "Polytra", trucks_poly, notes_poly, datetime.now().isoformat(timespec="seconds"))
                 )
-                st.success("✅ Polytra pickups logged!")
+                st.success(f"✅ {display_poly} pickups logged!")
         
         poly_pickups = read_df("SELECT id, pickup_date, trucks_picked, notes FROM transporter_daily_pickups WHERE transporter_name='Polytra' ORDER BY pickup_date DESC LIMIT 7")
         if len(poly_pickups):
             st.metric("Trucks (7 days)", f"{int(poly_pickups['trucks_picked'].sum())}")
             st.dataframe(poly_pickups.drop(columns=["id"]), use_container_width=True, hide_index=True)
 
-            with st.expander("Edit/Delete Polytra Entry", expanded=False):
+            with st.expander(f"Edit/Delete {display_poly} Entry", expanded=False):
                 poly_options = {
                     f"{row['pickup_date']} • {int(row['trucks_picked'])} trucks": int(row["id"])
                     for _, row in poly_pickups.iterrows()
@@ -1750,37 +1846,37 @@ elif page == "Daily Planner":
                                 "UPDATE transporter_daily_pickups SET pickup_date=?, trucks_picked=?, notes=? WHERE id=?",
                                 (edit_poly_date.isoformat(), edit_poly_trucks, edit_poly_notes, selected_poly_id),
                             )
-                            st.success("✅ Polytra entry updated.")
+                            st.success(f"✅ {display_poly} entry updated.")
                             st.rerun()
                         except sqlite3.IntegrityError:
                             st.error("⚠️ Update failed. Duplicate pickup date for Polytra.")
                 with col_delete:
                     if st.button("Delete Entry", key="poly_delete_btn"):
                         exec_sql("DELETE FROM transporter_daily_pickups WHERE id=?", (selected_poly_id,))
-                        st.success("🗑️ Polytra entry deleted.")
+                        st.success(f"🗑️ {display_poly} entry deleted.")
                         st.rerun()
     
     with col2:
-        st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Trammo Daily Pickups</div>", unsafe_allow_html=True)
-        with st.expander("Log Trammo Pickups", expanded=True):
+        st.markdown(f"<div class='section-title'><span class='title-icon'>✦</span>{display_tram} Daily Pickups</div>", unsafe_allow_html=True)
+        with st.expander(f"Log {display_tram} Pickups", expanded=True):
             pickup_date_tram = st.date_input("Pickup date", value=today, key="tram_date")
             trucks_tram = st.number_input("Trucks picked", min_value=0, step=1, value=1, key="tram_trucks")
             st.metric(f"Total MT ({TRUCK_CAPACITY_MT} MT/truck)", f"{trucks_tram * TRUCK_CAPACITY_MT:,.0f}")
             notes_tram = st.text_area("Notes", key="tram_notes")
             
-            if st.button("Save Trammo Pickups"):
+            if st.button(f"Save {display_tram} Pickups"):
                 exec_sql(
                     "INSERT OR REPLACE INTO transporter_daily_pickups(pickup_date, transporter_name, trucks_picked, notes, created_at) VALUES(?,?,?,?,?)",
                     (pickup_date_tram.isoformat(), "Reload (Trammo)", trucks_tram, notes_tram, datetime.now().isoformat(timespec="seconds"))
                 )
-                st.success("✅ Trammo pickups logged!")
+                st.success(f"✅ {display_tram} pickups logged!")
         
         tram_pickups = read_df("SELECT id, pickup_date, trucks_picked, notes FROM transporter_daily_pickups WHERE transporter_name='Reload (Trammo)' ORDER BY pickup_date DESC LIMIT 7")
         if len(tram_pickups):
             st.metric("Trucks (7 days)", f"{int(tram_pickups['trucks_picked'].sum())}")
             st.dataframe(tram_pickups.drop(columns=["id"]), use_container_width=True, hide_index=True)
 
-            with st.expander("Edit/Delete Trammo Entry", expanded=False):
+            with st.expander(f"Edit/Delete {display_tram} Entry", expanded=False):
                 tram_options = {
                     f"{row['pickup_date']} • {int(row['trucks_picked'])} trucks": int(row["id"])
                     for _, row in tram_pickups.iterrows()
@@ -1819,14 +1915,14 @@ elif page == "Daily Planner":
                                 "UPDATE transporter_daily_pickups SET pickup_date=?, trucks_picked=?, notes=? WHERE id=?",
                                 (edit_tram_date.isoformat(), edit_tram_trucks, edit_tram_notes, selected_tram_id),
                             )
-                            st.success("✅ Trammo entry updated.")
+                            st.success(f"✅ {display_tram} entry updated.")
                             st.rerun()
                         except sqlite3.IntegrityError:
-                            st.error("⚠️ Update failed. Duplicate pickup date for Trammo.")
+                            st.error(f"⚠️ Update failed. Duplicate pickup date for {display_tram}.")
                 with col_delete:
                     if st.button("Delete Entry", key="tram_delete_btn"):
                         exec_sql("DELETE FROM transporter_daily_pickups WHERE id=?", (selected_tram_id,))
-                        st.success("🗑️ Trammo entry deleted.")
+                        st.success(f"🗑️ {display_tram} entry deleted.")
                         st.rerun()
 
 elif page == "Monthly Data":
@@ -1858,8 +1954,9 @@ elif page == "Monthly Data":
     with md_cols[0]:
         md_mkey = st.selectbox("Month", month_options, index=0, key="md_month")
     with md_cols[1]:
-        transporter_options = ["All", "Polytra", "Reload (Trammo)"]
-        md_transporter = st.selectbox("Transporter", transporter_options, index=0, key="md_transporter")
+        md_display_list, md_reverse_map, md_display_map = get_transporter_ui_maps(md_mkey)
+        transporter_options = ["All"] + md_display_list
+        md_transporter_display = st.selectbox("Transporter", transporter_options, index=0, key="md_transporter")
 
     md_plan_df = read_df("SELECT allocation_mt FROM monthly_plan WHERE month_key=?", (md_mkey,))
     md_allocation_mt = float(md_plan_df.iloc[0]["allocation_mt"]) if len(md_plan_df) else DEFAULT_MONTHLY_ALLOCATION_MT
@@ -1872,7 +1969,8 @@ elif page == "Monthly Data":
         "SELECT pickup_date, transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
         (f"{md_mkey}%",),
     )
-    if md_transporter != "All":
+    if md_transporter_display != "All":
+        md_transporter = md_reverse_map.get(md_transporter_display, md_transporter_display)
         md_pickups = md_pickups[md_pickups["transporter_name"] == md_transporter].copy()
 
     md_total_trucks = int(md_pickups["trucks_picked"].sum()) if len(md_pickups) else 0
@@ -1935,37 +2033,54 @@ elif page == "Monthly Data":
                 "trucks_picked": "Trucks",
             }
         )
+        daily_view["Transporter"] = daily_view["Transporter"].map(
+            lambda name: md_display_map.get(name, name)
+        )
         daily_view["Date"] = pd.to_datetime(daily_view["Date"]).dt.strftime("%d %b %Y")
         daily_view = daily_view[["Date", "Transporter", "Trucks", "MT"]]
 
         daily_chart = (
-            md_pickups.groupby("pickup_date")["trucks_picked"]
+            md_pickups.groupby(["pickup_date", "transporter_name"])["trucks_picked"]
             .sum()
             .reset_index()
         )
         daily_chart["pickup_date"] = pd.to_datetime(daily_chart["pickup_date"])
         fig_md = go.Figure()
-        for _, row in daily_chart.iterrows():
+        color_map = {
+            "Polytra": "#2f80ff",
+            "Reload (Trammo)": "#ff9f1a",
+        }
+        line_map = {
+            "Polytra": "rgba(47, 128, 255, 0.55)",
+            "Reload (Trammo)": "rgba(255, 159, 26, 0.55)",
+        }
+        for transporter_name in daily_chart["transporter_name"].unique():
+            t_data = daily_chart[daily_chart["transporter_name"] == transporter_name]
+            for _, row in t_data.iterrows():
+                fig_md.add_trace(
+                    go.Scatter(
+                        x=[row["pickup_date"], row["pickup_date"]],
+                        y=[0, row["trucks_picked"]],
+                        mode="lines",
+                        line=dict(color=line_map.get(transporter_name, "rgba(210, 170, 255, 0.55)"), width=3),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    )
+                )
             fig_md.add_trace(
                 go.Scatter(
-                    x=[row["pickup_date"], row["pickup_date"]],
-                    y=[0, row["trucks_picked"]],
-                    mode="lines",
-                    line=dict(color="rgba(210, 170, 255, 0.55)", width=3),
-                    showlegend=False,
-                    hoverinfo="skip",
+                    x=t_data["pickup_date"],
+                    y=t_data["trucks_picked"],
+                    mode="markers",
+                    marker=dict(
+                        size=12,
+                        color=color_map.get(transporter_name, "#d6aaff"),
+                        line=dict(width=1, color="#f5e7ff"),
+                    ),
+                    name=md_display_map.get(transporter_name, transporter_name),
+                    hovertemplate="%{y} trucks<br>%{x|%b %d, %Y}<extra></extra>",
                 )
             )
-        fig_md.add_trace(
-            go.Scatter(
-                x=daily_chart["pickup_date"],
-                y=daily_chart["trucks_picked"],
-                mode="markers",
-                marker=dict(size=12, color="#d6aaff", line=dict(width=1, color="#f5e7ff")),
-                name="Trucks",
-                hovertemplate="%{y} trucks<br>%{x|%b %d, %Y}<extra></extra>",
-            )
-        )
         fig_md.update_layout(
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
@@ -2022,9 +2137,9 @@ elif page == "Settings":
     tram_alloc = trans_alloc.get("Reload (Trammo)", allocation_mt / 2)
     
     with col_poly:
-        new_poly = st.number_input("Polytra allocation (MT)", min_value=0.0, step=50.0, value=float(poly_alloc), key="poly_alloc")
+        new_poly = st.number_input(f"{display_poly} allocation (MT)", min_value=0.0, step=50.0, value=float(poly_alloc), key="poly_alloc")
     with col_tram:
-        new_tram = st.number_input("Trammo allocation (MT)", min_value=0.0, step=50.0, value=float(tram_alloc), key="tram_alloc")
+        new_tram = st.number_input(f"{display_tram} allocation (MT)", min_value=0.0, step=50.0, value=float(tram_alloc), key="tram_alloc")
     
     if st.button("Save Allocations"):
         exec_sql("UPDATE transporter_allocation SET allocation_mt=? WHERE month_key=? AND transporter_name=?", (new_poly, mkey, "Polytra"))
@@ -2033,19 +2148,20 @@ elif page == "Settings":
 
     st.divider()
     st.subheader("Loading Orders")
+    st.caption("Paid orders carry over automatically from the prior month. Enter only new paid orders for this month.")
     lo_col1, lo_col2, lo_col3 = st.columns(3)
     with lo_col1:
-        new_orders_paid = st.number_input("Orders paid", min_value=0, step=1, value=int(orders_paid))
+        new_orders_paid = st.number_input("Orders paid (this month)", min_value=0, step=1, value=int(orders_paid))
     with lo_col2:
         new_orders_paid_poly = st.number_input(
-            "Polytra paid orders",
+            f"{display_poly} paid orders",
             min_value=0,
             step=1,
             value=int(orders_paid_polytra),
         )
     with lo_col3:
         new_orders_paid_tram = st.number_input(
-            "Reload (Trammo) paid orders",
+            f"{display_tram} paid orders",
             min_value=0,
             step=1,
             value=int(orders_paid_trammo),
@@ -2082,6 +2198,26 @@ elif page == "Settings":
             )
             st.success("✅ Loading orders saved!")
             st.rerun()
+
+    st.divider()
+    st.subheader("Transporter Names (Monthly)")
+    st.caption("Update display names per month without changing stored pickup data.")
+    name_col1, name_col2 = st.columns(2)
+    with name_col1:
+        new_poly_display = st.text_input("Display name for Polytra", value=display_poly)
+    with name_col2:
+        new_tram_display = st.text_input("Display name for Trammo transporter", value=display_tram)
+    if st.button("Save Transporter Names"):
+        exec_sql(
+            "INSERT OR REPLACE INTO transporter_aliases(month_key, transporter_name, display_name) VALUES(?,?,?)",
+            (mkey, "Polytra", new_poly_display.strip() or "Polytra"),
+        )
+        exec_sql(
+            "INSERT OR REPLACE INTO transporter_aliases(month_key, transporter_name, display_name) VALUES(?,?,?)",
+            (mkey, "Reload (Trammo)", new_tram_display.strip() or "Reload (Trammo)"),
+        )
+        st.success("✅ Transporter names saved!")
+        st.rerun()
 
     st.divider()
     st.subheader("⚠️ Danger Zone")
