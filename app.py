@@ -626,6 +626,16 @@ def migrate_db():
         """)
         conn.commit()
     
+    if not table_exists("monthly_overrides"):
+        cur.execute("""
+        CREATE TABLE monthly_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_key TEXT UNIQUE NOT NULL,
+            reload_assist_trucks INTEGER NOT NULL DEFAULT 0
+        )
+        """)
+        conn.commit()
+    
     if table_exists("transporters"):
         cur.execute("""
             UPDATE transporters
@@ -673,6 +683,11 @@ def init_db():
         month_key TEXT UNIQUE NOT NULL,
         allocation_mt REAL NOT NULL,
         finish_by_day INTEGER NOT NULL
+    )""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS monthly_overrides (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        month_key TEXT UNIQUE NOT NULL,
+        reload_assist_trucks INTEGER NOT NULL DEFAULT 0
     )""")
     cur.execute("""CREATE TABLE IF NOT EXISTS transporter_allocation (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -802,6 +817,18 @@ def ensure_loading_orders(mkey: str):
         conn.commit()
     conn.close()
 
+def ensure_month_overrides(mkey: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM monthly_overrides WHERE month_key=?", (mkey,))
+    if not cur.fetchone():
+        cur.execute(
+            "INSERT INTO monthly_overrides(month_key, reload_assist_trucks) VALUES(?,?)",
+            (mkey, 0),
+        )
+        conn.commit()
+    conn.close()
+
 def read_df(query, params=()):
     conn = get_conn()
     df = pd.read_sql_query(query, conn, params=params)
@@ -814,6 +841,15 @@ def exec_sql(query, params=()):
     cur.execute(query, params)
     conn.commit()
     conn.close()
+
+def get_setting(key: str, default: str | None = None) -> str | None:
+    setting_df = read_df("SELECT value FROM settings WHERE key=?", (key,))
+    if len(setting_df):
+        return str(setting_df.iloc[0]["value"])
+    return default
+
+def set_setting(key: str, value: str):
+    exec_sql("INSERT OR REPLACE INTO settings(key, value) VALUES(?,?)", (key, value))
 
 init_db()
 migrate_db()
@@ -912,6 +948,7 @@ available_months = list_month_keys()
 mkey = current_mkey
 ensure_month_plan(mkey)
 ensure_loading_orders(mkey)
+ensure_month_overrides(mkey)
 
 plan_df = read_df("SELECT allocation_mt, finish_by_day FROM monthly_plan WHERE month_key=?", (mkey,))
 allocation_mt = float(plan_df.iloc[0]["allocation_mt"]) if len(plan_df) else DEFAULT_MONTHLY_ALLOCATION_MT
@@ -946,6 +983,12 @@ orders_paid_trammo = int(loading_orders_df.iloc[0]["orders_paid_trammo"]) if len
 orders_paid_polytra_base = int(loading_orders_df.iloc[0]["orders_paid_polytra_base"]) if len(loading_orders_df) else 0
 orders_paid_trammo_base = int(loading_orders_df.iloc[0]["orders_paid_trammo_base"]) if len(loading_orders_df) else 0
 
+override_df = read_df(
+    "SELECT reload_assist_trucks FROM monthly_overrides WHERE month_key=?",
+    (mkey,),
+)
+reload_assist_trucks = int(override_df.iloc[0]["reload_assist_trucks"]) if len(override_df) else 0
+
 carryover_total, carryover_poly, carryover_tram, carryover_src_mkey = calculate_paid_carryover(mkey)
 effective_orders_paid = orders_paid + carryover_total
 effective_orders_paid_polytra = orders_paid_polytra + carryover_poly
@@ -954,6 +997,7 @@ effective_orders_paid_trammo = orders_paid_trammo + carryover_tram
 trans_display_list, trans_reverse_map, trans_display_map = get_transporter_ui_maps(mkey)
 display_poly = trans_display_map.get("Polytra", "Polytra")
 display_tram = trans_display_map.get("Reload (Trammo)", "Reload (Trammo)")
+multi_transporters_enabled = get_setting("multi_transporters_enabled", "0") == "1"
 
 trans_daily_pickups = read_df(
     "SELECT pickup_date, transporter_name, trucks_picked FROM transporter_daily_pickups WHERE pickup_date LIKE ? ORDER BY pickup_date",
@@ -1639,6 +1683,8 @@ if page == "Dashboard":
             </div>
         </div>
         """, unsafe_allow_html=True)
+        if reload_assist_trucks > 0:
+            st.caption(f"Note: {reload_assist_trucks} trucks handled by Reload this month.")
 
     st.divider()
 
@@ -1862,12 +1908,28 @@ elif page == "Daily Planner":
             pickup_date_tram = st.date_input("Pickup date", value=today, key="tram_date")
             trucks_tram = st.number_input("Trucks picked", min_value=0, step=1, value=1, key="tram_trucks")
             st.metric(f"Total MT ({TRUCK_CAPACITY_MT} MT/truck)", f"{trucks_tram * TRUCK_CAPACITY_MT:,.0f}")
+            handled_by = display_tram
+            if multi_transporters_enabled:
+                handled_by = st.selectbox(
+                    "Handled by",
+                    [display_tram, "Reload"],
+                    index=0,
+                    key="tram_handled_by",
+                )
             notes_tram = st.text_area("Notes", key="tram_notes")
             
             if st.button(f"Save {display_tram} Pickups"):
+                final_notes = notes_tram
+                if multi_transporters_enabled and handled_by != display_tram:
+                    handled_tag = "Handled by Reload"
+                    if handled_tag not in final_notes:
+                        if final_notes.strip():
+                            final_notes = f"{final_notes.strip()} | {handled_tag}"
+                        else:
+                            final_notes = handled_tag
                 exec_sql(
                     "INSERT OR REPLACE INTO transporter_daily_pickups(pickup_date, transporter_name, trucks_picked, notes, created_at) VALUES(?,?,?,?,?)",
-                    (pickup_date_tram.isoformat(), "Reload (Trammo)", trucks_tram, notes_tram, datetime.now().isoformat(timespec="seconds"))
+                    (pickup_date_tram.isoformat(), "Reload (Trammo)", trucks_tram, final_notes, datetime.now().isoformat(timespec="seconds"))
                 )
                 st.success(f"✅ {display_tram} pickups logged!")
         
@@ -2147,6 +2209,17 @@ elif page == "Settings":
         st.success("✅ Allocations saved!")
 
     st.divider()
+    st.subheader("Customer Transporters")
+    multi_toggle = st.toggle(
+        "Allow multiple transporters per customer",
+        value=multi_transporters_enabled,
+    )
+    if st.button("Save Customer Transporter Setting"):
+        set_setting("multi_transporters_enabled", "1" if multi_toggle else "0")
+        st.success("✅ Customer transporter setting saved!")
+        st.rerun()
+
+    st.divider()
     st.subheader("Loading Orders")
     st.caption("Paid orders carry over automatically from the prior month. Enter only new paid orders for this month.")
     lo_col1, lo_col2, lo_col3 = st.columns(3)
@@ -2198,6 +2271,23 @@ elif page == "Settings":
             )
             st.success("✅ Loading orders saved!")
             st.rerun()
+
+    st.divider()
+    st.subheader("Monthly Notes")
+    st.caption("Use this to record occasional non-standard handling without changing performance totals.")
+    reload_assist_input = st.number_input(
+        "Reload assist trucks (this month)",
+        min_value=0,
+        step=1,
+        value=int(reload_assist_trucks),
+    )
+    if st.button("Save Monthly Notes"):
+        exec_sql(
+            "UPDATE monthly_overrides SET reload_assist_trucks=? WHERE month_key=?",
+            (reload_assist_input, mkey),
+        )
+        st.success("✅ Monthly notes saved!")
+        st.rerun()
 
     st.divider()
     st.subheader("Transporter Names (Monthly)")
