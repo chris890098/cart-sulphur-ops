@@ -1466,20 +1466,43 @@ if page == "Dashboard":
         if len(planned_schedule):
             st.markdown("<div class='card-row-gap'></div>", unsafe_allow_html=True)
             st.markdown("Planned pickups by date:")
-            planned_view = planned_schedule.copy()
-            planned_view["Date"] = planned_view["pickup_date"].dt.strftime("%d %b %Y")
+            planned_view = trans_daily_pickups[
+                pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date > as_of_date
+            ].copy()
+            planned_view["Date"] = pd.to_datetime(planned_view["pickup_date"]).dt.strftime("%d %b %Y")
+            planned_view["Transporter"] = planned_view["transporter_display"]
+            planned_view["MT"] = planned_view["trucks_picked"] * TRUCK_CAPACITY_MT
             planned_view = planned_view.rename(columns={"trucks_picked": "Trucks"})
-            planned_view = planned_view[["Date", "Trucks", "MT"]]
-            st.dataframe(
-                planned_view,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Date": st.column_config.TextColumn(),
-                    "Trucks": st.column_config.NumberColumn(format="%d"),
-                    "MT": st.column_config.NumberColumn(format="%.0f"),
-                },
+            planned_view = planned_view[["Date", "Transporter", "Trucks", "MT"]]
+            planned_view = (
+                planned_view.groupby(["Date", "Transporter"], as_index=False)[["Trucks", "MT"]]
+                .sum()
+                .sort_values(["Date", "Transporter"])
             )
+            planned_rows = []
+            for _, row in planned_view.iterrows():
+                planned_rows.append(
+                    f"<tr><td>{row['Date']}</td><td>{row['Transporter']}</td>"
+                    f"<td>{int(row['Trucks'])}</td><td>{row['MT']:.0f}</td></tr>"
+                )
+            planned_table = """
+            <div class="metric-card compact" style="padding: 0.85rem 1rem;">
+                <table style="width:100%; border-collapse: collapse; font-size: 13px;">
+                    <thead>
+                        <tr style="text-align:left; color:#d9c7ff;">
+                            <th style="padding: 0.35rem 0; font-weight:600;">Date</th>
+                            <th style="padding: 0.35rem 0; font-weight:600;">Transporter</th>
+                            <th style="padding: 0.35rem 0; font-weight:600;">Trucks</th>
+                            <th style="padding: 0.35rem 0; font-weight:600;">MT</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows}
+                    </tbody>
+                </table>
+            </div>
+            """.format(rows="".join(planned_rows))
+            st.markdown(planned_table, unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("<hr class='section-divider' />", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
