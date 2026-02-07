@@ -1065,25 +1065,29 @@ last_poly_trucks = 0
 last_tram_trucks = 0
 last_update_date = "—"
 if len(trans_daily_pickups):
-    last_update_date = pd.to_datetime(trans_daily_pickups["pickup_date"]).max().strftime("%d %b")
-    poly_dates = trans_daily_pickups[trans_daily_pickups["customer_name"] == "Polytra"]["pickup_date"]
-    tram_dates = trans_daily_pickups[trans_daily_pickups["customer_name"] == "Trammo"]["pickup_date"]
+    pickup_dates = pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date
+    actual_mask = pickup_dates <= today
+    actual_pickups = trans_daily_pickups[actual_mask].copy()
+    if len(actual_pickups):
+        last_update_date = pd.to_datetime(actual_pickups["pickup_date"]).max().strftime("%d %b")
+    poly_dates = actual_pickups[actual_pickups["customer_name"] == "Polytra"]["pickup_date"]
+    tram_dates = actual_pickups[actual_pickups["customer_name"] == "Trammo"]["pickup_date"]
     if len(poly_dates):
         poly_last_date = pd.to_datetime(poly_dates).max().date()
         last_poly_date = poly_last_date.strftime("%d %b")
         last_poly_trucks = int(
-            trans_daily_pickups[
-                (trans_daily_pickups["customer_name"] == "Polytra")
-                & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == poly_last_date)
+            actual_pickups[
+                (actual_pickups["customer_name"] == "Polytra")
+                & (pd.to_datetime(actual_pickups["pickup_date"]).dt.date == poly_last_date)
             ]["trucks_picked"].sum()
         )
     if len(tram_dates):
         tram_last_date = pd.to_datetime(tram_dates).max().date()
         last_tram_date = tram_last_date.strftime("%d %b")
         last_tram_trucks = int(
-            trans_daily_pickups[
-                (trans_daily_pickups["customer_name"] == "Trammo")
-                & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == tram_last_date)
+            actual_pickups[
+                (actual_pickups["customer_name"] == "Trammo")
+                & (pd.to_datetime(actual_pickups["pickup_date"]).dt.date == tram_last_date)
             ]["trucks_picked"].sum()
         )
 
@@ -1216,29 +1220,35 @@ if page == "Dashboard":
         last_poly_trucks = 0
         last_tram_trucks = 0
         if len(trans_daily_pickups):
-            poly_dates = trans_daily_pickups[trans_daily_pickups["customer_name"] == "Polytra"]["pickup_date"]
-            tram_dates = trans_daily_pickups[trans_daily_pickups["customer_name"] == "Trammo"]["pickup_date"]
+            pickup_dates = pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date
+            actual_mask = pickup_dates <= today
+            actual_pickups = trans_daily_pickups[actual_mask].copy()
+            poly_dates = actual_pickups[actual_pickups["customer_name"] == "Polytra"]["pickup_date"]
+            tram_dates = actual_pickups[actual_pickups["customer_name"] == "Trammo"]["pickup_date"]
             if len(poly_dates):
                 poly_last_date = pd.to_datetime(poly_dates).max().date()
                 last_poly_date = poly_last_date.strftime("%b %d")
                 last_poly_trucks = int(
-                    trans_daily_pickups[
-                        (trans_daily_pickups["customer_name"] == "Polytra")
-                        & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == poly_last_date)
+                    actual_pickups[
+                        (actual_pickups["customer_name"] == "Polytra")
+                        & (pd.to_datetime(actual_pickups["pickup_date"]).dt.date == poly_last_date)
                     ]["trucks_picked"].sum()
                 )
             if len(tram_dates):
                 tram_last_date = pd.to_datetime(tram_dates).max().date()
                 last_tram_date = tram_last_date.strftime("%b %d")
                 last_tram_trucks = int(
-                    trans_daily_pickups[
-                        (trans_daily_pickups["customer_name"] == "Trammo")
-                        & (pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date == tram_last_date)
+                    actual_pickups[
+                        (actual_pickups["customer_name"] == "Trammo")
+                        & (pd.to_datetime(actual_pickups["pickup_date"]).dt.date == tram_last_date)
                     ]["trucks_picked"].sum()
                 )
         last_update_date = "—"
         if len(trans_daily_pickups):
-            last_update_date = pd.to_datetime(trans_daily_pickups["pickup_date"]).max().strftime("%b %d")
+            pickup_dates = pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date
+            actual_pickups = trans_daily_pickups[pickup_dates <= today].copy()
+            if len(actual_pickups):
+                last_update_date = pd.to_datetime(actual_pickups["pickup_date"]).max().strftime("%b %d")
         st.markdown(
             f"""
             <div class="metric-card">
@@ -1383,6 +1393,17 @@ if page == "Dashboard":
             trans_daily_pickups[pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date > as_of_date]["trucks_picked"].sum()
         )
         planned_mt = planned_trucks * TRUCK_CAPACITY_MT
+        planned_schedule = trans_daily_pickups[
+            pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date > as_of_date
+        ].copy()
+        if len(planned_schedule):
+            planned_schedule = (
+                planned_schedule.groupby("pickup_date")["trucks_picked"]
+                .sum()
+                .reset_index()
+            )
+            planned_schedule["pickup_date"] = pd.to_datetime(planned_schedule["pickup_date"])
+            planned_schedule["MT"] = planned_schedule["trucks_picked"] * TRUCK_CAPACITY_MT
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -1441,6 +1462,23 @@ if page == "Dashboard":
                 </div>
                 """,
                 unsafe_allow_html=True,
+            )
+        if len(planned_schedule):
+            st.markdown("<div class='card-row-gap'></div>", unsafe_allow_html=True)
+            st.markdown("Planned pickups by date:")
+            planned_view = planned_schedule.copy()
+            planned_view["Date"] = planned_view["pickup_date"].dt.strftime("%d %b %Y")
+            planned_view = planned_view.rename(columns={"trucks_picked": "Trucks"})
+            planned_view = planned_view[["Date", "Trucks", "MT"]]
+            st.dataframe(
+                planned_view,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Date": st.column_config.TextColumn(),
+                    "Trucks": st.column_config.NumberColumn(format="%d"),
+                    "MT": st.column_config.NumberColumn(format="%.0f"),
+                },
             )
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("<hr class='section-divider' />", unsafe_allow_html=True)
@@ -1652,7 +1690,7 @@ if page == "Dashboard":
             margin=dict(l=20, r=28, t=70, b=14),
             font=dict(color='#e0f7ff')
         )
-        st.plotly_chart(fig_poly, use_container_width=True)
+        st.plotly_chart(fig_poly, use_container_width=True, config={"displayModeBar": False})
         
         st.markdown(f"""
         <div class="metric-stack">
@@ -1744,7 +1782,7 @@ if page == "Dashboard":
             margin=dict(l=20, r=28, t=70, b=14),
             font=dict(color='#e0f7ff')
         )
-        st.plotly_chart(fig_tram, use_container_width=True)
+        st.plotly_chart(fig_tram, use_container_width=True, config={"displayModeBar": False})
         
         st.markdown(f"""
         <div class="metric-stack">
@@ -2215,12 +2253,22 @@ elif page == "Monthly Data":
             "Reload": "rgba(255, 159, 26, 0.55)",
             "Impala": "rgba(47, 212, 182, 0.55)",
         }
-        for transporter_name in daily_chart["transporter_display"].unique():
+        transporter_order = list(daily_chart["transporter_display"].unique())
+        if transporter_order:
+            mid = (len(transporter_order) - 1) / 2
+            offset_hours = {
+                name: (idx - mid) * 4
+                for idx, name in enumerate(transporter_order)
+            }
+        else:
+            offset_hours = {}
+        for transporter_name in transporter_order:
             t_data = daily_chart[daily_chart["transporter_display"] == transporter_name]
+            offset = pd.to_timedelta(offset_hours.get(transporter_name, 0), unit="h")
             for _, row in t_data.iterrows():
                 fig_md.add_trace(
                     go.Scatter(
-                        x=[row["pickup_date"], row["pickup_date"]],
+                        x=[row["pickup_date"] + offset, row["pickup_date"] + offset],
                         y=[0, row["trucks_picked"]],
                         mode="lines",
                         line=dict(color=line_map.get(transporter_name, "rgba(210, 170, 255, 0.55)"), width=3),
@@ -2230,7 +2278,7 @@ elif page == "Monthly Data":
                 )
             fig_md.add_trace(
                 go.Scatter(
-                    x=t_data["pickup_date"],
+                    x=t_data["pickup_date"] + offset,
                     y=t_data["trucks_picked"],
                     mode="markers",
                     marker=dict(
