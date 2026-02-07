@@ -2277,21 +2277,12 @@ elif page == "Monthly Data":
             "Impala": "rgba(47, 212, 182, 0.55)",
         }
         transporter_order = list(daily_chart["transporter_display"].unique())
-        if transporter_order:
-            mid = (len(transporter_order) - 1) / 2
-            offset_hours = {
-                name: (idx - mid) * 4
-                for idx, name in enumerate(transporter_order)
-            }
-        else:
-            offset_hours = {}
         for transporter_name in transporter_order:
             t_data = daily_chart[daily_chart["transporter_display"] == transporter_name]
-            offset = pd.to_timedelta(offset_hours.get(transporter_name, 0), unit="h")
             for _, row in t_data.iterrows():
                 fig_md.add_trace(
                     go.Scatter(
-                        x=[row["pickup_date"] + offset, row["pickup_date"] + offset],
+                        x=[row["pickup_date"], row["pickup_date"]],
                         y=[0, row["trucks_picked"]],
                         mode="lines",
                         line=dict(color=line_map.get(transporter_name, "rgba(210, 170, 255, 0.55)"), width=3),
@@ -2301,7 +2292,7 @@ elif page == "Monthly Data":
                 )
             fig_md.add_trace(
                 go.Scatter(
-                    x=t_data["pickup_date"] + offset,
+                    x=t_data["pickup_date"],
                     y=t_data["trucks_picked"],
                     mode="markers",
                     marker=dict(
