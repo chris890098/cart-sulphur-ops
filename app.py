@@ -1499,21 +1499,32 @@ if page == "Dashboard":
         # Planned portion - highlight future booked pickups
         projected_data = daily_agg[daily_agg['pickup_date'] > pd.to_datetime(as_of_date)]
         if len(projected_data) > 0 and len(completed_data) > 0:
+            last_completed = completed_data.iloc[-1]
+            first_planned = projected_data.iloc[0]
+            fig.add_trace(go.Scatter(
+                x=[last_completed['pickup_date'], first_planned['pickup_date']],
+                y=[last_completed['cumulative_mt'], first_planned['cumulative_mt']],
+                mode='lines',
+                name='Planned Connector',
+                line=dict(color='rgba(255, 178, 92, 0.75)', width=3, dash='dash'),
+                hoverinfo='skip',
+                showlegend=False
+            ))
             fig.add_trace(go.Scatter(
                 x=projected_data['pickup_date'], y=projected_data['cumulative_mt'],
                 mode='lines+markers',
                 name='Planned Pickups',
-                line=dict(color='rgba(95, 242, 197, 0.65)', width=3, dash='dash'),
-                marker=dict(size=7, color='rgba(95, 242, 197, 0.65)', line=dict(width=1.5, color='rgba(220,255,240,0.6)')),
+                line=dict(color='rgba(255, 178, 92, 0.75)', width=3, dash='dash'),
+                marker=dict(size=7, color='rgba(255, 178, 92, 0.85)', line=dict(width=1.5, color='rgba(255, 228, 196, 0.7)')),
                 hovertemplate='%{y:,.0f} MT'
             ))
         
-        # Target line - green dotted
+        # Target line - teal dotted
         fig.add_trace(go.Scatter(
             x=target_dates, y=target_values,
             mode='lines',
             name='Target Trajectory',
-            line=dict(color='rgba(95, 242, 197, 0.9)', width=3, dash='dot'),
+            line=dict(color='rgba(80, 214, 255, 0.85)', width=3, dash='dot'),
             hovertemplate='%{y:,.0f} MT'
         ))
         
