@@ -1379,8 +1379,12 @@ if page == "Dashboard":
         
         needed_per_day = remaining / max(days_left, 1)
         trucks_needed = needed_per_day / TRUCK_CAPACITY_MT
+        planned_trucks = int(
+            trans_daily_pickups[pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date > as_of_date]["trucks_picked"].sum()
+        )
+        planned_mt = planned_trucks * TRUCK_CAPACITY_MT
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             status_value = f"✅ Ahead by {variance:,.0f} MT" if variance >= 0 else f"⚠️ Behind by {abs(variance):,.0f} MT"
             st.markdown(
@@ -1418,6 +1422,20 @@ if page == "Dashboard":
                     <div class="metric-blocks single">
                         <div class="metric-block">
                             <span class="metric-block-value">{trucks_needed:.1f}</span>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with col4:
+            st.markdown(
+                f"""
+                <div class="metric-card compact">
+                    <p class="metric-title">Planned MT (Future)</p>
+                    <div class="metric-blocks single">
+                        <div class="metric-block">
+                            <span class="metric-block-value">{planned_mt:,.0f}</span>
                         </div>
                     </div>
                 </div>
@@ -1478,15 +1496,15 @@ if page == "Dashboard":
                 hovertemplate='%{y:,.0f} MT'
             ))
         
-        # Projected portion - dimmer cyan
+        # Planned portion - highlight future booked pickups
         projected_data = daily_agg[daily_agg['pickup_date'] > pd.to_datetime(as_of_date)]
         if len(projected_data) > 0 and len(completed_data) > 0:
             fig.add_trace(go.Scatter(
                 x=projected_data['pickup_date'], y=projected_data['cumulative_mt'],
                 mode='lines+markers',
-                name='Projected Progress',
-                line=dict(color='rgba(182, 140, 255, 0.55)', width=3, dash='dash'),
-                marker=dict(size=7, color='rgba(182, 140, 255, 0.55)', line=dict(width=1.5, color='rgba(247,236,255,0.5)')),
+                name='Planned Pickups',
+                line=dict(color='rgba(95, 242, 197, 0.65)', width=3, dash='dash'),
+                marker=dict(size=7, color='rgba(95, 242, 197, 0.65)', line=dict(width=1.5, color='rgba(220,255,240,0.6)')),
                 hovertemplate='%{y:,.0f} MT'
             ))
         
