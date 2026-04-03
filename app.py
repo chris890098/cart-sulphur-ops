@@ -1064,9 +1064,10 @@ last_tram_date = "—"
 last_poly_trucks = 0
 last_tram_trucks = 0
 last_update_date = "—"
+actual_pickups = trans_daily_pickups.iloc[0:0].copy()
 if len(trans_daily_pickups):
     pickup_dates = pd.to_datetime(trans_daily_pickups["pickup_date"]).dt.date
-    actual_mask = pickup_dates <= today
+    actual_mask = pickup_dates <= as_of_date
     actual_pickups = trans_daily_pickups[actual_mask].copy()
     if len(actual_pickups):
         last_update_date = pd.to_datetime(actual_pickups["pickup_date"]).max().strftime("%d %b")
@@ -1115,13 +1116,13 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-total_trucks_picked = int(trans_daily_pickups["trucks_picked"].sum()) if len(trans_daily_pickups) else 0
+total_trucks_picked = int(actual_pickups["trucks_picked"].sum()) if len(actual_pickups) else 0
 total_mt_picked = float(total_trucks_picked * TRUCK_CAPACITY_MT)
 
-poly_trucks = int(trans_daily_pickups[trans_daily_pickups["customer_name"] == "Polytra"]["trucks_picked"].sum()) if len(trans_daily_pickups) else 0
+poly_trucks = int(actual_pickups[actual_pickups["customer_name"] == "Polytra"]["trucks_picked"].sum()) if len(actual_pickups) else 0
 poly_mt = float(poly_trucks * TRUCK_CAPACITY_MT)
 
-tram_trucks = int(trans_daily_pickups[trans_daily_pickups["customer_name"] == "Trammo"]["trucks_picked"].sum()) if len(trans_daily_pickups) else 0
+tram_trucks = int(actual_pickups[actual_pickups["customer_name"] == "Trammo"]["trucks_picked"].sum()) if len(actual_pickups) else 0
 tram_mt = float(tram_trucks * TRUCK_CAPACITY_MT)
 
 reload_assist_trucks = int(
@@ -1375,8 +1376,8 @@ if page == "Dashboard":
     st.markdown("<div class='section-block'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title'><span class='title-icon'>✦</span>Progress Analysis</div>", unsafe_allow_html=True)
     st.markdown("<div class='section-content'>", unsafe_allow_html=True)
-    if len(trans_daily_pickups) > 0:
-        daily_agg = trans_daily_pickups.groupby("pickup_date")["trucks_picked"].sum().reset_index()
+    if len(actual_pickups) > 0:
+        daily_agg = actual_pickups.groupby("pickup_date")["trucks_picked"].sum().reset_index()
         daily_agg["daily_mt"] = daily_agg["trucks_picked"] * TRUCK_CAPACITY_MT
         daily_agg["cumulative_mt"] = daily_agg["daily_mt"].cumsum()
         
@@ -1482,18 +1483,17 @@ if page == "Dashboard":
             planned_rows = []
             for _, row in planned_view.iterrows():
                 planned_rows.append(
-                    f"<tr><td>{row['Date']}</td><td>{row['Transporter']}</td>"
-                    f"<td>{int(row['Trucks'])}</td><td>{row['MT']:.0f}</td></tr>"
+                    f\"<tr><td style='padding: 0.35rem 0.45rem;'>{row['Date']}</td>\"\n+                    f\"<td style='padding: 0.35rem 0.45rem;'>{row['Transporter']}</td>\"\n+                    f\"<td style='padding: 0.35rem 0.45rem;'>{int(row['Trucks'])}</td>\"\n+                    f\"<td style='padding: 0.35rem 0.45rem;'>{row['MT']:.0f}</td></tr>\"\n                 )
                 )
             planned_table = """
             <div class="metric-card compact" style="padding: 0.85rem 1rem;">
                 <table style="width:100%; border-collapse: collapse; font-size: 13px;">
                     <thead>
                         <tr style="text-align:left; color:#d9c7ff;">
-                            <th style="padding: 0.35rem 0; font-weight:600;">Date</th>
-                            <th style="padding: 0.35rem 0; font-weight:600;">Transporter</th>
-                            <th style="padding: 0.35rem 0; font-weight:600;">Trucks</th>
-                            <th style="padding: 0.35rem 0; font-weight:600;">MT</th>
+                            <th style="padding: 0.35rem 0.45rem; font-weight:600;">Date</th>
+                            <th style="padding: 0.35rem 0.45rem; font-weight:600;">Transporter</th>
+                            <th style="padding: 0.35rem 0.45rem; font-weight:600;">Trucks</th>
+                            <th style="padding: 0.35rem 0.45rem; font-weight:600;">MT</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2265,6 +2265,12 @@ elif page == "Monthly Data":
             .reset_index()
         )
         daily_chart["pickup_date"] = pd.to_datetime(daily_chart["pickup_date"])
+        daily_chart = daily_chart.sort_values(["pickup_date", "transporter_display"])
+        daily_chart["stack_base"] = (
+            daily_chart.groupby("pickup_date")["trucks_picked"].cumsum() - daily_chart["trucks_picked"]
+        )
+        daily_chart["stack_top"] = daily_chart["stack_base"] + daily_chart["trucks_picked"]
+
         fig_md = go.Figure()
         color_map = {
             "Polytra": "#2f80ff",
@@ -2283,7 +2289,7 @@ elif page == "Monthly Data":
                 fig_md.add_trace(
                     go.Scatter(
                         x=[row["pickup_date"], row["pickup_date"]],
-                        y=[0, row["trucks_picked"]],
+                        y=[row["stack_base"], row["stack_top"]],
                         mode="lines",
                         line=dict(color=line_map.get(transporter_name, "rgba(210, 170, 255, 0.55)"), width=3),
                         showlegend=False,
@@ -2293,7 +2299,7 @@ elif page == "Monthly Data":
             fig_md.add_trace(
                 go.Scatter(
                     x=t_data["pickup_date"],
-                    y=t_data["trucks_picked"],
+                    y=t_data["stack_top"],
                     mode="markers",
                     marker=dict(
                         size=12,
@@ -2316,7 +2322,7 @@ elif page == "Monthly Data":
                 showgrid=True,
                 gridcolor="rgba(255,255,255,0.08)",
                 rangemode="tozero",
-                range=[0, 5],
+                range=[0, max(5, int(daily_chart.groupby("pickup_date")["trucks_picked"].sum().max() or 0) + 1)],
                 dtick=1,
                 title="Trucks",
             ),
