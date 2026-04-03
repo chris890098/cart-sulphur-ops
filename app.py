@@ -1483,7 +1483,10 @@ if page == "Dashboard":
             planned_rows = []
             for _, row in planned_view.iterrows():
                 planned_rows.append(
-                    f\"<tr><td style='padding: 0.35rem 0.45rem;'>{row['Date']}</td>\"\n+                    f\"<td style='padding: 0.35rem 0.45rem;'>{row['Transporter']}</td>\"\n+                    f\"<td style='padding: 0.35rem 0.45rem;'>{int(row['Trucks'])}</td>\"\n+                    f\"<td style='padding: 0.35rem 0.45rem;'>{row['MT']:.0f}</td></tr>\"\n                 )
+                    f"<tr><td style='padding: 0.35rem 0.45rem;'>{row['Date']}</td>"
+                    f"<td style='padding: 0.35rem 0.45rem;'>{row['Transporter']}</td>"
+                    f"<td style='padding: 0.35rem 0.45rem;'>{int(row['Trucks'])}</td>"
+                    f"<td style='padding: 0.35rem 0.45rem;'>{row['MT']:.0f}</td></tr>"
                 )
             planned_table = """
             <div class="metric-card compact" style="padding: 0.85rem 1rem;">
